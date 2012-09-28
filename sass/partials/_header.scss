@@ -1,0 +1,29 @@
+body > header {
+  background-color: $header-bg;
+  background-position: center center;
+  background-repeat: no-repeat;
+  /* Safari 4-5, Chrome 1-9 */
+  /* Can't specify a percentage size? Laaaaaame. */
+  background: -webkit-gradient(radial, center center, 0, center center, 460, from(lighten($header-bg, 7%)), to($header-bg));
+  /* Safari 5.1+, Chrome 10+ */
+  background: -webkit-radial-gradient(circle, lighten($header-bg, 7%), $header-bg);
+  /* Firefox 3.6+ */ 
+  background: -moz-radial-gradient(circle, lighten($header-bg, 7%), $header-bg);
+  /* IE 10 */ 
+  background: -ms-radial-gradient(circle, lighten($header-bg, 7%), $header-bg);
+  h1 {
+    display: inline-block;
+    margin: 0;
+    a, a:visited, a:hover {
+      color: $title_color;
+      text-decoration: none;
+    }
+  }
+  h2 {
+    margin: .2em 0 0;
+    @extend .sans;
+    font-size: 1em;
+    color: $subtitle-color;
+    font-weight: normal;
+  }
+}

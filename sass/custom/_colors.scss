@@ -1,0 +1,57 @@
+// Here you can easily change your sites's color scheme.
+// To give it a try, uncomment some of the lines below rebuild your blog, and see how it works.
+// If you need a handy color picker try http://hslpicker.com
+
+$header-bg: #B0D8EF;
+$bracket-color: #188fd7;
+$title-color: #000;
+$subtitle-color: #000;
+$page-bg: $header-bg;
+
+/* Nav colors */
+$nav-bg: $bracket-color;
+$nav-border: #fff;
+$nav-color: #000000;
+$nav-color-hover: lighten($nav-bg, 20%);
+$nav-visited: #fff;
+$nav-search-color: #fff;
+$nav-search-placeholder-color: lighten($nav-bg, 2%);
+$nav-border-left: darken($nav-bg, 25%);
+$nav-border-right: lighten($nav-bg, 20%);
+
+$sidebar-bg: desaturate(#eceff5, 8);
+$sidebar-link-color: saturate(#526f9a, 10);
+$sidebar-link-color-hover: darken(#7ab662, 9);
+$footer-bg: $bracket-color !default;
+$footer-bg-front: image-url('noise.png');
+$footer-bg-back: linear-gradient(lighten($footer-bg, 8), $footer-bg, darken($footer-bg, 11));
+
+$link-color: $bracket-color;
+
+
+/* To use the light Solarized highlighting theme uncomment the following line */
+//$solarized: light;
+
+/* If you want to tweak the Solarized colors you can do that here */
+// $base03:          #2d2d2d !default;
+// $base02:          #393939 !default;
+// $base01:          #515151 !default;
+// $base00:          #747369 !default;
+// $base0:           #a09f93 !default;
+// $base1:           #d3d0c8 !default;
+// $base2:           #e8e6df !default;
+// $base3:           #f2f0ec !default; 
+// $solar-yellow:    #ffcc66 !default;
+// $solar-orange:    #f99157 !default;
+// $solar-red:       #f2777a !default;
+// $solar-magenta:   #d27b53 !default;
+// $solar-violet:    #cc99cc !default;
+// $solar-blue:      #6699cc !default;
+// $solar-cyan:      #66cccc !default;
+// $solar-green:     #99cc99 !default;
+
+
+/* Non highlighted code colors */
+// $pre-bg: $base03;
+// $pre-border: darken($base02, 5);
+// $pre-color: $base1;
