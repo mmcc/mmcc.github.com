@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[matt.mc]]></title>
+  <link href="http://sh1ps.github.com/atom.xml" rel="self"/>
+  <link href="http://sh1ps.github.com/"/>
+  <updated>2012-09-28T18:38:39-04:00</updated>
+  <id>http://sh1ps.github.com/</id>
+  <author>
+    <name><![CDATA[Matthew McClure]]></name>
+    
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[Obligatory First Post]]></title>
+    <link href="http://sh1ps.github.com/blog/2012/09/28/obligatory-first-post/"/>
+    <updated>2012-09-28T00:38:00-04:00</updated>
+    <id>http://sh1ps.github.com/blog/2012/09/28/obligatory-first-post</id>
+    <content type="html"><![CDATA[<p>Every blog must have its fist post, and this is it. I&#8217;ve been meaning to do this for a long time, but always got hung up choosing the software to make it with or even with styling that software.</p>
+
+<p>I ended up going with <a href="http://octopress.org/" title="Octopress">Octopress</a> and making changes primarily to the CSS. The default theme uses SASS and it&#8217;s organized well, so making it look a little less like the 1000 other Octopress blogs out there was pretty easy.</p>
+
+<p>The first post will be a writeup on <a href="http://http://song-votr.herokuapp.com/" title="Song-Votr Demo">Song-Votr</a>, since I saw a <a href="http://www.twilio.com/blog/2012/09/building-a-real-time-sms-voting-app-part-1-node-js-couchdb.html">tutorial</a> on how to build something pretty similar (down to the name &#8220;Votr&#8221;). Hopefully that will be up by the end of the weekend!</p>
+
+<p>- Matt</p>
+]]></content>
+  </entry>
+  
+</feed>
