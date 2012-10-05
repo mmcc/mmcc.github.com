@@ -9,7 +9,7 @@
   <meta name="author" content="Matthew McClure">
 
   
-  <meta name="description" content="Every blog must have its fist post, and this is it. I&#8217;ve been meaning to do this for a long time, but always got hung up choosing the software &hellip;">
+  <meta name="description" content="Delivering real-time updates to users has never been easier thanks to some open-source projects and great startups that have popped up. I started &hellip;">
   
 
   <!-- http://t.co/dKP3o1e -->
@@ -71,6 +71,446 @@
       
   <header>
     
+      <h1 class="entry-title"><a href="/blog/2012/10/04/real-time-voting-with-pubnub/">Real-Time Voting With PubNub</a></h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2012-10-04T18:58:00-04:00" pubdate data-updated="true">Oct 4<span>th</span>, 2012</time>
+        
+      </p>
+    
+  </header>
+
+
+  <div class="entry-content"><p>Delivering real-time updates to users has never been easier thanks to some <a href="http://socket.io/">open-source</a> <a href="http://faye.jcoglan.com/">projects</a> and <a href="http://www.pusher.com">great</a> <a href="https://www.hydna.com">startups</a> that have popped up. I started using PubNub for <a href="http://tunewolf.co">TuneWolf</a>, and so far I couldn&#8217;t be happier.</p>
+
+<p>When I first started using PubNub, they didn&#8217;t have the enormous client-library you see now and the Ruby examples were a little scarce, so I decided to build something fun in order to get acquainted with the service. I&#8217;d also been hearing great things about <a href="http://padrinorb.com">Padrino</a>, so I decided to try out the two together.</p>
+
+<p>The result was <a href="http://song-votr.herokuapp.com">Song-Votr</a>, a simple voting application that puts one round of songs up at a time. Users can vote on the songs they like and also see everyone else&#8217;s votes happening in real-time. Before we look at any code, let&#8217;s lay out the broad overview of how everything interacts.</p>
+
+<p>Song-Votr serves up the current round of songs. When a user clicks on a song, the client places the vote via an AJAX post request. Song-Votr increments the selected song&#8217;s vote count along with the total number of votes for the round, then publishes a message to our PubNub channel with the new stats for the round. The user that placed the vote (along with all other connected users) receives that updated round information and the client updates the view.</p>
+
+<p><img src="/images/Diagram.png" alt="image" /></p>
+
+<p>In a nutshell, all clients are only subscribed to PubNub, and the server only publishes messages. This allows Song-Votr to be the gatekeeper of the PubNub channel, making sure that users are only getting votes that were successfully processed.</p>
+
+<h2>Setting Up</h2>
+
+<p>Since we&#8217;re using Padrino let&#8217;s go ahead and generate the project. I&#8217;m a sucker for Haml and Sass, so we&#8217;ll use those along with ActiveRecord for our ORM and, of course, jQuery. The -b flag simply runs bundle install after generation.</p>
+
+<pre><code>$ padrino g project votr -e haml -c sass -s jquery -d activerecord -b
+</code></pre>
+
+<p>I used ActiveRecord because I come from Rails and I&#8217;m familiar with it, but you could always switch that out for whatever adapter you prefer. Assuming you are using AR, the next step is to generate our models. Our model is dead simple, consisting of just two models: a round that has many songs.</p>
+
+<pre><code>$ padrino g model round start_time:datetime end_time:datetime total_votes:integer -a app
+$ padrino g model song title:string artist:string votes:integer percentage:float round_id:integer -a app
+</code></pre>
+
+<p>This will also generate the necessary migrations. Before you run them, let&#8217;s go in and add a default value of 0 to total_votes in round and votes in songs. When you&#8217;re done, those migrations should look similar to what&#8217;s below.</p>
+
+<figure class='code'><figcaption><span>001_create_rounds.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="k">class</span> <span class="nc">CreateRounds</span> <span class="o">&lt;</span> <span class="no">ActiveRecord</span><span class="o">::</span><span class="no">Migration</span>
+</span><span class='line'>  <span class="k">def</span> <span class="nc">self</span><span class="o">.</span><span class="nf">up</span>
+</span><span class='line'>    <span class="n">create_table</span> <span class="ss">:rounds</span> <span class="k">do</span> <span class="o">|</span><span class="n">t</span><span class="o">|</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">datetime</span> <span class="ss">:start_time</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">datetime</span> <span class="ss">:end_time</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">integer</span> <span class="ss">:total_votes</span><span class="p">,</span> <span class="ss">:default</span> <span class="o">=&gt;</span> <span class="mi">0</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">timestamps</span>
+</span><span class='line'>    <span class="k">end</span>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">def</span> <span class="nc">self</span><span class="o">.</span><span class="nf">down</span>
+</span><span class='line'>    <span class="n">drop_table</span> <span class="ss">:rounds</span>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>002_create_songs.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="k">class</span> <span class="nc">CreateSongs</span> <span class="o">&lt;</span> <span class="no">ActiveRecord</span><span class="o">::</span><span class="no">Migration</span>
+</span><span class='line'>  <span class="k">def</span> <span class="nc">self</span><span class="o">.</span><span class="nf">up</span>
+</span><span class='line'>    <span class="n">create_table</span> <span class="ss">:songs</span> <span class="k">do</span> <span class="o">|</span><span class="n">t</span><span class="o">|</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">string</span> <span class="ss">:title</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">string</span> <span class="ss">:artist</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">integer</span> <span class="ss">:votes</span><span class="p">,</span> <span class="ss">:default</span> <span class="o">=&gt;</span> <span class="mi">0</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">float</span> <span class="ss">:percentage</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">integer</span> <span class="ss">:round_id</span>
+</span><span class='line'>      <span class="n">t</span><span class="o">.</span><span class="n">timestamps</span>
+</span><span class='line'>    <span class="k">end</span>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">def</span> <span class="nc">self</span><span class="o">.</span><span class="nf">down</span>
+</span><span class='line'>    <span class="n">drop_table</span> <span class="ss">:songs</span>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Once you&#8217;re done, make sure you run the migrations with the command <code>padrino rake ar:migrate</code>.</p>
+
+<p>With our database now ready, we need to go into the models and define the relationships. While we&#8217;re in there, let&#8217;s go ahead and write a scope to get the current round since that&#8217;s something we&#8217;ll definitely need soon.</p>
+
+<figure class='code'><figcaption><span>round.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="k">class</span> <span class="nc">Round</span> <span class="o">&lt;</span> <span class="no">ActiveRecord</span><span class="o">::</span><span class="no">Base</span>
+</span><span class='line'>  <span class="n">has_many</span> <span class="ss">:songs</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">scope</span> <span class="ss">:current</span><span class="p">,</span> <span class="nb">lambda</span> <span class="p">{</span>
+</span><span class='line'>    <span class="n">where</span><span class="p">(</span><span class="s2">&quot;start_time &lt;= ? and end_time &gt; ?&quot;</span><span class="p">,</span> <span class="no">DateTime</span><span class="o">.</span><span class="n">now</span><span class="p">,</span> <span class="no">DateTime</span><span class="o">.</span><span class="n">now</span><span class="p">)</span>
+</span><span class='line'>  <span class="p">}</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>song.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="k">class</span> <span class="nc">Song</span> <span class="o">&lt;</span> <span class="no">ActiveRecord</span><span class="o">::</span><span class="no">Base</span>
+</span><span class='line'>  <span class="n">belongs_to</span> <span class="ss">:round</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>A neat feature about Padrino is its drop-in admin interface, but let&#8217;s not worry about that yet. For now, we&#8217;ll insert a round and some songs into the database from the console.</p>
+
+<pre><code>$ padrino c
+&gt; round = Round.new
+&gt; round.start_time = DateTime.now
+&gt; round.end_time = DateTime.now + 3.days
+&gt; round.save!
+
+&gt; song = round.songs.new
+&gt; song.title = "My Heart Will Go On"
+&gt; song.artist = "Celine Dion"
+&gt; song.save!
+</code></pre>
+
+<p>Repeat the song process for a few more songs so you can have things to vote on for the next 3 days. Once you&#8217;re done, your database should be prepped and ready!</p>
+
+<h2>Front page and layout</h2>
+
+<p>Because there are only two routes, we can get away with just using the base app.rb file as our only controller. Let&#8217;s go ahead and make our root route and decide what we need to pass to our view. We&#8217;ll want a timer to show how much time is left in the round, along with the round itself (and associated songs). Notice we&#8217;re using the current scope we set up in our model. Padrino is based on <a href="http://www.sinatrarb.com/">Sinatra</a>, so if you&#8217;ve ever used Sinatra this syntax should be very familiar.</p>
+
+<figure class='code'><figcaption><span>app.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="n">get</span> <span class="s1">&#39;/&#39;</span> <span class="k">do</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="vi">@round</span> <span class="o">=</span> <span class="no">Round</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">first</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">unless</span> <span class="vi">@round</span><span class="o">.</span><span class="n">blank?</span> <span class="o">||</span> <span class="vi">@round</span><span class="o">.</span><span class="n">end_time</span><span class="o">.</span><span class="n">past?</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="n">difference</span> <span class="o">=</span> <span class="vi">@round</span><span class="o">.</span><span class="n">end_time</span> <span class="o">-</span> <span class="no">DateTime</span><span class="o">.</span><span class="n">now</span><span class="o">.</span><span class="n">to_i</span>
+</span><span class='line'>    <span class="vi">@timer</span> <span class="o">=</span> <span class="n">difference</span>
+</span><span class='line'>    <span class="vi">@songs</span> <span class="o">=</span> <span class="vi">@round</span><span class="o">.</span><span class="n">songs</span><span class="o">.</span><span class="n">order</span><span class="p">(</span><span class="s2">&quot;artist&quot;</span><span class="p">)</span>
+</span><span class='line'>    <span class="vi">@msg</span> <span class="o">=</span> <span class="p">{</span> <span class="ss">:songs</span> <span class="o">=&gt;</span> <span class="vi">@songs</span><span class="p">,</span> <span class="ss">:round</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="p">,</span> <span class="ss">:total_votes</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span> <span class="p">}</span><span class="o">.</span><span class="n">to_json</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">render</span> <span class="s1">&#39;index&#39;</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now it&#8217;s time to actually make an interface for people to see. I was planning on using this for a demo, so I took the time to style it up. If you&#8217;d like to go ahead and simply copy my <a href="https://github.com/sh1ps/padrino-pubnub-votr/blob/master/app/stylesheets/application.scss">stylesheet</a> from the repository, go ahead and do that now.</p>
+
+<p>Our layout is going to be simple for now. I almost always start my projects with Nicolas Gallagher&#8217;s <a href="http://necolas.github.com/normalize.css/">Normalize</a>, and Keith Wood&#8217;s <a href="http://keith-wood.name/countdown.html">jquery.countdown</a> is what&#8217;s going to make our clock actually count down.</p>
+
+<figure class='code'><figcaption><span>views/layouts/application.haml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="o">!!!</span> <span class="mi">5</span>
+</span><span class='line'><span class="o">%</span><span class="n">html</span>
+</span><span class='line'>  <span class="o">%</span><span class="n">head</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">title</span> <span class="no">Votr</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;description&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;author&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;3 days&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;revisit-after&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">link</span><span class="p">{</span> <span class="ss">:href</span> <span class="o">=&gt;</span> <span class="s2">&quot;http://creativecommons.org/licenses/by/3.0/&quot;</span><span class="p">,</span> <span class="ss">:rel</span> <span class="o">=&gt;</span> <span class="s2">&quot;license&quot;</span><span class="p">,</span> <span class="ss">:title</span> <span class="o">=&gt;</span> <span class="s2">&quot;Creative Commons Attribution 3.0 Unported License&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">script</span><span class="p">{</span> <span class="ss">:src</span> <span class="o">=&gt;</span> <span class="s2">&quot;https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="o">=</span> <span class="n">stylesheet_link_tag</span> <span class="s1">&#39;normalize&#39;</span><span class="p">,</span> <span class="s1">&#39;application&#39;</span>
+</span><span class='line'>    <span class="o">=</span> <span class="n">javascript_include_tag</span> <span class="s1">&#39;application&#39;</span><span class="p">,</span> <span class="s1">&#39;jquery.countdown&#39;</span>
+</span><span class='line'>  <span class="o">%</span><span class="n">body</span>
+</span><span class='line'>    <span class="o">=</span> <span class="k">yield</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="o">%</span><span class="n">footer</span>
+</span><span class='line'>      <span class="o">%</span><span class="nb">p</span>
+</span><span class='line'>        <span class="c1">#{link_to(&quot;SongVotr&quot;, &quot;http://github.com/sh1ps/padrino-pubnub-votr&quot;)}. By #{link_to(&quot;@matt_mcclure&quot;, &quot;http://www.twitter.com/matt_mcclure&quot;)}.</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="o">-</span> <span class="k">unless</span> <span class="vi">@round</span><span class="o">.</span><span class="n">blank?</span>
+</span><span class='line'>    <span class="ss">:javascript</span>
+</span><span class='line'>      <span class="err">$</span><span class="p">(</span><span class="n">function</span><span class="p">(){</span>
+</span><span class='line'>            <span class="err">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">countdown</span><span class="p">({</span><span class="k">until</span><span class="p">:</span> <span class="c1">#{@timer.to_i}, format: &#39;HMS&#39;, compact: true, onExpiry: disableVoting});</span>
+</span><span class='line'>          <span class="p">});</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The index view itself is pretty self explanatory. We want to display the clock at the top, followed by a list of the songs in the current round, their current votes, and the percentage of the total vote they&#8217;ve received. As you can see, we went ahead and made each song title a link. We&#8217;ll be making that /vote route next.</p>
+
+<figure class='code'><figcaption><span>views/index.haml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="o">-</span> <span class="k">unless</span> <span class="vi">@timer</span><span class="o">.</span><span class="n">blank?</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="o">%</span><span class="n">header</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">h1</span> <span class="no">What</span> <span class="k">do</span> <span class="o">&lt;</span><span class="n">span</span> <span class="n">class</span><span class="o">=</span><span class="s2">&quot;blue&quot;</span><span class="o">&gt;</span><span class="n">you</span><span class="o">&lt;</span><span class="sr">/span&gt; want to hear next?</span>
+</span><span class='line'><span class="sr">    %p Click the song titles to vote.</span>
+</span><span class='line'><span class="sr">    %h1#clock.blue</span>
+</span><span class='line'>
+</span><span class='line'><span class="sr">  - unless @songs.blank? </span>
+</span><span class='line'><span class="sr">    %ul.selections</span>
+</span><span class='line'><span class="sr">      - @songs.each do |s|</span>
+</span><span class='line'><span class="sr">        %li[s]</span>
+</span><span class='line'><span class="sr">          %h3</span>
+</span><span class='line'><span class="sr">            = link_to &quot;</span><span class="si">#{</span><span class="n">s</span><span class="o">.</span><span class="n">artist</span><span class="si">}</span><span class="sr"> - </span><span class="si">#{</span><span class="n">s</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="sr">&quot;, &quot;/</span><span class="n">vote?</span><span class="nb">id</span><span class="o">=</span><span class="c1">#{s.id}&quot;, :class =&gt; &quot;vote&quot;</span>
+</span><span class='line'>            <span class="o">%</span><span class="n">small</span> <span class="p">(</span><span class="o">&lt;</span><span class="n">span</span> <span class="n">class</span><span class="o">=</span><span class="s2">&quot;votes&quot;</span><span class="o">&gt;</span><span class="c1">#{s.votes}&lt;/span&gt; votes)</span>
+</span><span class='line'>          <span class="o">.</span><span class="n">progress</span>
+</span><span class='line'>            <span class="o">.</span><span class="n">outline</span>
+</span><span class='line'>            <span class="o">.</span><span class="n">bar</span>
+</span><span class='line'>  <span class="o">-</span> <span class="k">else</span>
+</span><span class='line'>    <span class="o">%</span><span class="nb">p</span> <span class="no">No</span> <span class="n">songs</span> <span class="n">to</span> <span class="n">vote</span> <span class="n">on!</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">-</span> <span class="k">else</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="o">%</span><span class="n">header</span>
+</span><span class='line'>    <span class="o">%</span><span class="n">h1</span> <span class="no">Nothing</span> <span class="n">to</span> <span class="n">currently</span> <span class="n">vote</span> <span class="n">on</span><span class="o">.</span> <span class="no">Come</span> <span class="n">back</span> <span class="n">later</span><span class="o">.</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Placing Votes</h2>
+
+<p>The /vote route is where almost all of the real functionality of the app lies. Because we&#8217;re only allowing for one active round at a time, we can just get the current round. We can cut down on the number of SQL queries by going ahead and eager loading songs along with the round. This can be done via the includes method you see on Round in the second line.</p>
+
+<p>Other than that, all that&#8217;s happening is incrementing the total votes for the round and the number of votes for the song. We then recalculate that song&#8217;s percentage (just for archival purposes) and return success or failure based on whether or not the song / round was persisted.</p>
+
+<p>Notice that we&#8217;re querying the database again for all of the songs. This is because when we plug PubNub in, we need to be publishing <em>all</em> of the songs in order to be able to recalculate all of their percentages and votes on the client side.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="n">post</span> <span class="s1">&#39;/vote&#39;</span><span class="p">,</span> <span class="ss">:provides</span> <span class="o">=&gt;</span> <span class="ss">:json</span> <span class="k">do</span>
+</span><span class='line'>  <span class="vi">@round</span> <span class="o">=</span> <span class="no">Round</span><span class="o">.</span><span class="n">includes</span><span class="p">(</span><span class="ss">:songs</span><span class="p">)</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">first</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">unless</span> <span class="vi">@round</span><span class="o">.</span><span class="n">end_time</span><span class="o">.</span><span class="n">past?</span>
+</span><span class='line'>    <span class="vi">@songs</span> <span class="o">=</span> <span class="vi">@round</span><span class="o">.</span><span class="n">songs</span><span class="o">.</span><span class="n">order</span><span class="p">(</span><span class="s2">&quot;artist&quot;</span><span class="p">)</span>
+</span><span class='line'>    <span class="vi">@song</span> <span class="o">=</span> <span class="vi">@songs</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+</span><span class='line'>    <span class="vi">@song</span><span class="o">.</span><span class="n">votes</span> <span class="o">=</span> <span class="vi">@song</span><span class="o">.</span><span class="n">votes</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span class='line'>    <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span> <span class="o">=</span> <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="vi">@song</span><span class="o">.</span><span class="n">percentage</span> <span class="o">=</span> <span class="vi">@song</span><span class="o">.</span><span class="n">votes</span><span class="o">.</span><span class="n">to_f</span> <span class="o">/</span> <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="o">.</span><span class="n">to_f</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">if</span> <span class="vi">@song</span><span class="o">.</span><span class="n">save</span> <span class="ow">and</span> <span class="vi">@round</span><span class="o">.</span><span class="n">save</span>
+</span><span class='line'>      <span class="vi">@songs</span> <span class="o">=</span> <span class="no">Round</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">first</span><span class="o">.</span><span class="n">songs</span>
+</span><span class='line'>      <span class="n">logger</span><span class="o">.</span><span class="n">info</span> <span class="s2">&quot;Total votes: </span><span class="si">#{</span><span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span class='line'>
+</span><span class='line'>      <span class="n">render</span> <span class="ss">:success</span> <span class="o">=&gt;</span> <span class="kp">true</span><span class="p">,</span> <span class="ss">:attributes</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="s1">&#39;round&#39;</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="p">,</span> <span class="s1">&#39;songs&#39;</span> <span class="o">=&gt;</span> <span class="vi">@songs</span> <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">else</span>
+</span><span class='line'>      <span class="n">render</span> <span class="ss">:success</span> <span class="o">=&gt;</span> <span class="kp">false</span><span class="p">,</span> <span class="ss">:attributes</span> <span class="o">=&gt;</span> <span class="p">{</span><span class="ss">:message</span> <span class="o">=&gt;</span> <span class="s2">&quot;Unable to save your vote...&quot;</span><span class="p">}</span>
+</span><span class='line'>    <span class="k">end</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="k">else</span>
+</span><span class='line'>    <span class="n">render</span> <span class="ss">:success</span> <span class="o">=&gt;</span> <span class="kp">false</span><span class="p">,</span> <span class="ss">:attributes</span> <span class="o">=&gt;</span> <span class="p">{</span><span class="ss">:message</span> <span class="o">=&gt;</span> <span class="s2">&quot;The voting is already over.&quot;</span><span class="p">}</span>
+</span><span class='line'>  <span class="k">end</span>
+</span><span class='line'><span class="k">end</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now that the /vote route works, we need to add a little Javascript so the vote is sent via ajax. Change the javascript block in the layout to look something like this:</p>
+
+<figure class='code'><figcaption><span>views/layouts/application.haml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="ss">:javascript</span>
+</span><span class='line'>  <span class="err">$</span><span class="p">(</span><span class="n">function</span><span class="p">(){</span>
+</span><span class='line'>    <span class="err">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">countdown</span><span class="p">({</span><span class="k">until</span><span class="p">:</span> <span class="c1">#{@timer.to_i}, format: &#39;HMS&#39;, compact: true, onExpiry: disableVoting});</span>
+</span><span class='line'>      
+</span><span class='line'>    <span class="err">$</span><span class="p">(</span><span class="s1">&#39;.vote&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">click</span><span class="p">(</span><span class="n">function</span><span class="p">(</span><span class="n">event</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>    <span class="n">event</span><span class="o">.</span><span class="n">preventDefault</span><span class="p">();</span>
+</span><span class='line'>    <span class="n">var</span> <span class="vg">$link</span> <span class="o">=</span> <span class="err">$</span><span class="p">(</span><span class="n">this</span><span class="p">);</span>
+</span><span class='line'>  
+</span><span class='line'>      <span class="vg">$.</span><span class="n">ajax</span><span class="p">({</span>
+</span><span class='line'>        <span class="n">type</span><span class="p">:</span> <span class="s1">&#39;POST&#39;</span><span class="p">,</span>
+</span><span class='line'>        <span class="n">url</span><span class="p">:</span> <span class="vg">$link</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s1">&#39;href&#39;</span><span class="p">),</span>
+</span><span class='line'>        <span class="n">success</span><span class="p">:</span> <span class="n">function</span> <span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>          <span class="n">console</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Vote placed.&quot;</span><span class="p">);</span>
+</span><span class='line'>        <span class="p">},</span>
+</span><span class='line'>        <span class="n">error</span><span class="p">:</span> <span class="n">function</span> <span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>          <span class="n">console</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Error: vote not placed.&quot;</span><span class="p">);</span>
+</span><span class='line'>          <span class="n">alert</span><span class="p">(</span><span class="s2">&quot;Vote could not be placed at this time.&quot;</span><span class="p">);</span>
+</span><span class='line'>        <span class="p">}</span>
+</span><span class='line'>      <span class="p">});</span>
+</span><span class='line'>    <span class="p">});</span>
+</span><span class='line'>  <span class="p">});</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Making it Live</h2>
+
+<p>Now that we have our rounds and we&#8217;re able to post votes to them, we need to make it so everyone can see everyone&#8217;s votes as their happening. Because this post is starting to get incredibly lengthy, let&#8217;s take a breather and tackle the PubNub integration in the next post.</p>
+
+<h2>If you&#8217;re interested&#8230;</h2>
+
+<p>If this interested you, <a href="http://www.twilio.com">Twilio</a> posted a <a href="http://www.twilio.com/blog/2012/09/building-a-real-time-sms-voting-app-part-1-node-js-couchdb.html">tutorial</a> on building a similar project using their service along with Node.js and CouchDB. Happy hacking!</p>
+
+<p>- Matt</p>
+</div>
+  
+  
+
+
+    </article>
+  
+  
+    <article>
+      
+  <header>
+    
       <h1 class="entry-title"><a href="/blog/2012/09/28/obligatory-first-post/">Obligatory First Post</a></h1>
     
     
@@ -119,6 +559,10 @@
     <section>
   <h1>Recent Posts</h1>
   <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2012/10/04/real-time-voting-with-pubnub/">Real-Time Voting with PubNub</a>
+      </li>
     
       <li class="post">
         <a href="/blog/2012/09/28/obligatory-first-post/">Obligatory First Post</a>

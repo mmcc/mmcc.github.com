@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: PubNub | matt.mc]]></title>
+  <link href="http://sh1ps.github.com/blog/categories/pubnub/atom.xml" rel="self"/>
+  <link href="http://sh1ps.github.com/"/>
+  <updated>2012-10-05T13:25:55-04:00</updated>
+  <id>http://sh1ps.github.com/</id>
+  <author>
+    <name><![CDATA[Matthew McClure]]></name>
+    
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[Real-Time Voting with PubNub]]></title>
+    <link href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/"/>
+    <updated>2012-10-04T18:58:00-04:00</updated>
+    <id>http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub</id>
+    <content type="html"><![CDATA[<p>Delivering real-time updates to users has never been easier thanks to some <a href="http://socket.io/">open-source</a> <a href="http://faye.jcoglan.com/">projects</a> and <a href="http://www.pusher.com">great</a> <a href="https://www.hydna.com">startups</a> that have popped up. I started using PubNub for <a href="http://tunewolf.co">TuneWolf</a>, and so far I couldn't be happier.</p>
+
+<p>When I first started using PubNub, they didn't have the enormous client-library you see now and the Ruby examples were a little scarce, so I decided to build something fun in order to get acquainted with the service. I'd also been hearing great things about <a href="http://padrinorb.com">Padrino</a>, so I decided to try out the two together.</p>
+
+<p>The result was <a href="http://song-votr.herokuapp.com">Song-Votr</a>, a simple voting application that puts one round of songs up at a time. Users can vote on the songs they like and also see everyone else's votes happening in real-time. Before we look at any code, let's lay out the broad overview of how everything interacts.</p>
+
+<p>Song-Votr serves up the current round of songs. When a user clicks on a song, the client places the vote via an AJAX post request. Song-Votr increments the selected song's vote count along with the total number of votes for the round, then publishes a message to our PubNub channel with the new stats for the round. The user that placed the vote (along with all other connected users) receives that updated round information and the client updates the view.</p>
+
+<p><img src="/images/Diagram.png" alt="image" /></p>
+
+<p>In a nutshell, all clients are only subscribed to PubNub, and the server only publishes messages. This allows Song-Votr to be the gatekeeper of the PubNub channel, making sure that users are only getting votes that were successfully processed.</p>
+
+<h2>Setting Up</h2>
+
+<p>Since we're using Padrino let's go ahead and generate the project. I'm a sucker for Haml and Sass, so we'll use those along with ActiveRecord for our ORM and, of course, jQuery. The -b flag simply runs bundle install after generation.</p>
+
+<pre><code>$ padrino g project votr -e haml -c sass -s jquery -d activerecord -b
+</code></pre>
+
+<p>I used ActiveRecord because I come from Rails and I'm familiar with it, but you could always switch that out for whatever adapter you prefer. Assuming you are using AR, the next step is to generate our models. Our model is dead simple, consisting of just two models: a round that has many songs.</p>
+
+<pre><code>$ padrino g model round start_time:datetime end_time:datetime total_votes:integer -a app
+$ padrino g model song title:string artist:string votes:integer percentage:float round_id:integer -a app
+</code></pre>
+
+<p>This will also generate the necessary migrations. Before you run them, let's go in and add a default value of 0 to total_votes in round and votes in songs. When you're done, those migrations should look similar to what's below.</p>
+
+<p>``` ruby 001_create_rounds.rb
+class CreateRounds &lt; ActiveRecord::Migration
+  def self.up</p>
+
+<pre><code>create_table :rounds do |t|
+  t.datetime :start_time
+  t.datetime :end_time
+  t.integer :total_votes, :default =&gt; 0
+  t.timestamps
+end
+</code></pre>
+
+<p>  end</p>
+
+<p>  def self.down</p>
+
+<pre><code>drop_table :rounds
+</code></pre>
+
+<p>  end
+end
+```</p>
+
+<p>``` ruby 002_create_songs.rb
+class CreateSongs &lt; ActiveRecord::Migration
+  def self.up</p>
+
+<pre><code>create_table :songs do |t|
+  t.string :title
+  t.string :artist
+  t.integer :votes, :default =&gt; 0
+  t.float :percentage
+  t.integer :round_id
+  t.timestamps
+end
+</code></pre>
+
+<p>  end</p>
+
+<p>  def self.down</p>
+
+<pre><code>drop_table :songs
+</code></pre>
+
+<p>  end
+end
+```</p>
+
+<p>Once you're done, make sure you run the migrations with the command <code>padrino rake ar:migrate</code>.</p>
+
+<p>With our database now ready, we need to go into the models and define the relationships. While we're in there, let's go ahead and write a scope to get the current round since that's something we'll definitely need soon.</p>
+
+<p>``` ruby round.rb
+class Round &lt; ActiveRecord::Base<br/>
+  has_many :songs</p>
+
+<p>  scope :current, lambda {</p>
+
+<pre><code>where("start_time &lt;= ? and end_time &gt; ?", DateTime.now, DateTime.now)  
+</code></pre>
+
+<p>  }<br/>
+end
+```</p>
+
+<p><code>ruby song.rb
+class Song &lt; ActiveRecord::Base
+  belongs_to :round  
+end
+</code></p>
+
+<p>A neat feature about Padrino is its drop-in admin interface, but let's not worry about that yet. For now, we'll insert a round and some songs into the database from the console.</p>
+
+<pre><code>$ padrino c
+&gt; round = Round.new
+&gt; round.start_time = DateTime.now
+&gt; round.end_time = DateTime.now + 3.days
+&gt; round.save!
+
+&gt; song = round.songs.new
+&gt; song.title = "My Heart Will Go On"
+&gt; song.artist = "Celine Dion"
+&gt; song.save!
+</code></pre>
+
+<p>Repeat the song process for a few more songs so you can have things to vote on for the next 3 days. Once you're done, your database should be prepped and ready!</p>
+
+<h2>Front page and layout</h2>
+
+<p>Because there are only two routes, we can get away with just using the base app.rb file as our only controller. Let's go ahead and make our root route and decide what we need to pass to our view. We'll want a timer to show how much time is left in the round, along with the round itself (and associated songs). Notice we're using the current scope we set up in our model. Padrino is based on <a href="http://www.sinatrarb.com/">Sinatra</a>, so if you've ever used Sinatra this syntax should be very familiar.</p>
+
+<p>``` ruby app.rb
+get '/' do</p>
+
+<p>  @round = Round.current.first</p>
+
+<p>  unless @round.blank? || @round.end_time.past?</p>
+
+<pre><code>difference = @round.end_time - DateTime.now.to_i
+@timer = difference
+@songs = @round.songs.order("artist")
+@msg = { :songs =&gt; @songs, :round =&gt; @round, :total_votes =&gt; @round.total_votes }.to_json
+</code></pre>
+
+<p>  end</p>
+
+<p>  render 'index'
+end
+```</p>
+
+<p>Now it's time to actually make an interface for people to see. I was planning on using this for a demo, so I took the time to style it up. If you'd like to go ahead and simply copy my <a href="https://github.com/sh1ps/padrino-pubnub-votr/blob/master/app/stylesheets/application.scss">stylesheet</a> from the repository, go ahead and do that now.</p>
+
+<p>Our layout is going to be simple for now. I almost always start my projects with Nicolas Gallagher's <a href="http://necolas.github.com/normalize.css/">Normalize</a>, and Keith Wood's <a href="http://keith-wood.name/countdown.html">jquery.countdown</a> is what's going to make our clock actually count down.</p>
+
+<p>``` ruby views/layouts/application.haml
+!!! 5
+%html
+  %head</p>
+
+<pre><code>%title Votr
+%meta{ :content =&gt; "", :name =&gt; "description" }
+%meta{ :content =&gt; "", :name =&gt; "author" }
+%meta{ :content =&gt; "3 days", :name =&gt; "revisit-after" }
+%link{ :href =&gt; "http://creativecommons.org/licenses/by/3.0/", :rel =&gt; "license", :title =&gt; "Creative Commons Attribution 3.0 Unported License" }
+%script{ :src =&gt; "https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js" }
+= stylesheet_link_tag 'normalize', 'application'
+= javascript_include_tag 'application', 'jquery.countdown'
+</code></pre>
+
+<p>  %body</p>
+
+<pre><code>= yield
+
+%footer
+  %p
+    #{link_to("SongVotr", "http://github.com/sh1ps/padrino-pubnub-votr")}. By #{link_to("@matt_mcclure", "http://www.twitter.com/matt_mcclure")}.
+
+- unless @round.blank?
+  :javascript
+    $(function(){
+      $('#clock').countdown({until: #{@timer.to_i}, format: 'HMS', compact: true, onExpiry: disableVoting});
+    });
+</code></pre>
+
+<p>```</p>
+
+<p>The index view itself is pretty self explanatory. We want to display the clock at the top, followed by a list of the songs in the current round, their current votes, and the percentage of the total vote they've received. As you can see, we went ahead and made each song title a link. We'll be making that /vote route next.</p>
+
+<p>``` ruby views/index.haml
+- unless @timer.blank?</p>
+
+<p>  %header</p>
+
+<pre><code>%h1 What do &lt;span class="blue"&gt;you&lt;/span&gt; want to hear next?
+%p Click the song titles to vote.
+%h1#clock.blue
+</code></pre>
+
+<ul>
+<li>unless @songs.blank?
+%ul.selections
+
+<ul>
+<li>@songs.each do |s|
+%li[s]
+  %h3
+
+<pre><code>= link_to "#{s.artist} - #{s.title}", "/vote?id=#{s.id}", :class =&gt; "vote"
+%small (&lt;span class="votes"&gt;#{s.votes}&lt;/span&gt; votes)
+</code></pre>
+
+  .progress
+
+<pre><code>.outline
+.bar
+</code></pre></li>
+</ul>
+</li>
+<li><p>else
+%p No songs to vote on!</p></li>
+<li><p>else</p>
+
+<p>%header
+  %h1 Nothing to currently vote on. Come back later.</p></li>
+</ul>
+
+
+<p>```</p>
+
+<h2>Placing Votes</h2>
+
+<p>The /vote route is where almost all of the real functionality of the app lies. Because we're only allowing for one active round at a time, we can just get the current round. We can cut down on the number of SQL queries by going ahead and eager loading songs along with the round. This can be done via the includes method you see on Round in the second line.</p>
+
+<p>Other than that, all that's happening is incrementing the total votes for the round and the number of votes for the song. We then recalculate that song's percentage (just for archival purposes) and return success or failure based on whether or not the song / round was persisted.</p>
+
+<p>Notice that we're querying the database again for all of the songs. This is because when we plug PubNub in, we need to be publishing <em>all</em> of the songs in order to be able to recalculate all of their percentages and votes on the client side.</p>
+
+<p>``` ruby
+post '/vote', :provides => :json do
+  @round = Round.includes(:songs).current.first</p>
+
+<p>  unless @round.end_time.past?</p>
+
+<pre><code>@songs = @round.songs.order("artist")
+@song = @songs.find(params[:id])
+@song.votes = @song.votes + 1
+@round.total_votes = @round.total_votes + 1
+
+@song.percentage = @song.votes.to_f / @round.total_votes.to_f
+
+if @song.save and @round.save
+  @songs = Round.current.first.songs
+  logger.info "Total votes: #{@round.total_votes}"
+
+  render :success =&gt; true, :attributes =&gt; { 'round' =&gt; @round, 'songs' =&gt; @songs }
+
+else
+  render :success =&gt; false, :attributes =&gt; {:message =&gt; "Unable to save your vote..."}
+end
+</code></pre>
+
+<p>  else</p>
+
+<pre><code>render :success =&gt; false, :attributes =&gt; {:message =&gt; "The voting is already over."}
+</code></pre>
+
+<p>  end
+end
+```
+Now that the /vote route works, we need to add a little Javascript so the vote is sent via ajax. Change the javascript block in the layout to look something like this:</p>
+
+<p>``` ruby views/layouts/application.haml
+:javascript
+  $(function(){</p>
+
+<pre><code>$('#clock').countdown({until: #{@timer.to_i}, format: 'HMS', compact: true, onExpiry: disableVoting});
+
+$('.vote').click(function(event) {
+  event.preventDefault();
+  var $link = $(this);
+
+  $.ajax({
+    type: 'POST',
+    url: $link.attr('href'),
+    success: function (response) {
+      console.log("Vote placed.");
+    },
+    error: function (response) {
+      console.log("Error: vote not placed.");
+      alert("Vote could not be placed at this time.");
+    }
+  });
+});
+</code></pre>
+
+<p>  });
+```</p>
+
+<h2>Making it Live</h2>
+
+<p>Now that we have our rounds and we're able to post votes to them, we need to make it so everyone can see everyone's votes as their happening. Because this post is starting to get incredibly lengthy, let's take a breather and tackle the PubNub integration in the next post.</p>
+
+<h2>If you're interested...</h2>
+
+<p>If this interested you, <a href="http://www.twilio.com">Twilio</a> posted a <a href="http://www.twilio.com/blog/2012/09/building-a-real-time-sms-voting-app-part-1-node-js-couchdb.html">tutorial</a> on building a similar project using their service along with Node.js and CouchDB. Happy hacking!</p>
+
+<p>- Matt</p>
+]]></content>
+  </entry>
+  
+</feed>

@@ -1,24 +1,97 @@
-<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
 
-  <title><![CDATA[matt.mc]]></title>
-  <link href="http://sh1ps.github.com/atom.xml" rel="self"/>
-  <link href="http://sh1ps.github.com/"/>
-  <updated>2012-10-05T13:25:55-04:00</updated>
-  <id>http://sh1ps.github.com/</id>
-  <author>
-    <name><![CDATA[Matthew McClure]]></name>
-    
-  </author>
-  <generator uri="http://octopress.org/">Octopress</generator>
+<!DOCTYPE html>
+<!--[if IEMobile 7 ]><html class="no-js iem7"><![endif]-->
+<!--[if lt IE 9]><html class="no-js lte-ie8"><![endif]-->
+<!--[if (gt IE 8)|(gt IEMobile 7)|!(IEMobile)|!(IE)]><!--><html class="no-js" lang="en"><!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <title>Real-Time Voting with PubNub - matt.mc</title>
+  <meta name="author" content="Matthew McClure">
 
   
-  <entry>
-    <title type="html"><![CDATA[Real-Time Voting with PubNub]]></title>
-    <link href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/"/>
-    <updated>2012-10-04T18:58:00-04:00</updated>
-    <id>http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub</id>
-    <content type="html"><![CDATA[<p>Delivering real-time updates to users has never been easier thanks to some <a href="http://socket.io/">open-source</a> <a href="http://faye.jcoglan.com/">projects</a> and <a href="http://www.pusher.com">great</a> <a href="https://www.hydna.com">startups</a> that have popped up. I started using PubNub for <a href="http://tunewolf.co">TuneWolf</a>, and so far I couldn&#8217;t be happier.</p>
+  <meta name="description" content="Delivering real-time updates to users has never been easier thanks to some open-source projects and great startups that have popped up. I started &hellip;">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/">
+  <link href="/favicon.png" rel="icon">
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+  <link href="/stylesheets/font-awesome.css" media="screen, projection" rel="stylesheet" type="text/css">
+  <script src="/javascripts/modernizr-2.0.js"></script>
+  <script src="/javascripts/ender.js"></script>
+  <script src="/javascripts/octopress.js" type="text/javascript"></script>
+  <link href="/atom.xml" rel="alternate" title="matt.mc" type="application/atom+xml">
+  <!--Fonts from Google"s Web font directory at http://google.com/webfonts -->
+<link href="http://fonts.googleapis.com/css?family=PT+Serif:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+<link href="http://fonts.googleapis.com/css?family=PT+Sans:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+
+  
+
+</head>
+
+<body   >
+  <header role="banner"><hgroup>
+  <h1><a href="/"><span class="bracket">[</span>matt.mc<span class="bracket">]</span></a></h1>
+  
+    <h2>Matt.tech_ramblings</h2>
+  
+</hgroup>
+
+</header>
+  <nav role="navigation"><ul class="subscription" data-subscription="rss">
+  <li><a href="/atom.xml" rel="subscribe-rss" title="subscribe via RSS">RSS</a></li>
+  
+</ul>
+  
+<form action="http://google.com/search" method="get">
+  <fieldset role="search">
+    <input type="hidden" name="q" value="site:sh1ps.github.com" />
+    <input class="search" type="text" name="q" results="0" placeholder="Search"/>
+  </fieldset>
+</form>
+  
+<ul class="main-navigation">
+  <li><a href="/">Blog</a></li>
+  <li><a href="/blog/archives">Archives</a></li>
+</ul>
+
+</nav>
+  <div id="main">
+    <div id="content">
+      <div>
+<article class="hentry" role="article">
+  
+  <header>
+    
+      <h1 class="entry-title">Real-Time Voting With PubNub</h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2012-10-04T18:58:00-04:00" pubdate data-updated="true">Oct 4<span>th</span>, 2012</time>
+        
+      </p>
+    
+  </header>
+
+
+<div class="entry-content"><p>Delivering real-time updates to users has never been easier thanks to some <a href="http://socket.io/">open-source</a> <a href="http://faye.jcoglan.com/">projects</a> and <a href="http://www.pusher.com">great</a> <a href="https://www.hydna.com">startups</a> that have popped up. I started using PubNub for <a href="http://tunewolf.co">TuneWolf</a>, and so far I couldn&#8217;t be happier.</p>
 
 <p>When I first started using PubNub, they didn&#8217;t have the enormous client-library you see now and the Ruby examples were a little scarce, so I decided to build something fun in order to get acquainted with the service. I&#8217;d also been hearing great things about <a href="http://padrinorb.com">Padrino</a>, so I decided to try out the two together.</p>
 
@@ -26,7 +99,7 @@
 
 <p>Song-Votr serves up the current round of songs. When a user clicks on a song, the client places the vote via an AJAX post request. Song-Votr increments the selected song&#8217;s vote count along with the total number of votes for the round, then publishes a message to our PubNub channel with the new stats for the round. The user that placed the vote (along with all other connected users) receives that updated round information and the client updates the view.</p>
 
-<p><img src="http://sh1ps.github.com/images/Diagram.png" alt="image" /></p>
+<p><img src="/images/Diagram.png" alt="image" /></p>
 
 <p>In a nutshell, all clients are only subscribed to PubNub, and the server only publishes messages. This allows Song-Votr to be the gatekeeper of the PubNub channel, making sure that users are only getting votes that were successfully processed.</p>
 
@@ -423,22 +496,160 @@ $ padrino g model song title:string artist:string votes:integer percentage:float
 <p>If this interested you, <a href="http://www.twilio.com">Twilio</a> posted a <a href="http://www.twilio.com/blog/2012/09/building-a-real-time-sms-voting-app-part-1-node-js-couchdb.html">tutorial</a> on building a similar project using their service along with Node.js and CouchDB. Happy hacking!</p>
 
 <p>- Matt</p>
-]]></content>
-  </entry>
+</div>
+
+
+  <footer>
+    <p class="meta">
+      
   
-  <entry>
-    <title type="html"><![CDATA[Obligatory First Post]]></title>
-    <link href="http://sh1ps.github.com/blog/2012/09/28/obligatory-first-post/"/>
-    <updated>2012-09-28T00:38:00-04:00</updated>
-    <id>http://sh1ps.github.com/blog/2012/09/28/obligatory-first-post</id>
-    <content type="html"><![CDATA[<p>Every blog must have its fist post, and this is it. I&#8217;ve been meaning to do this for a long time, but always got hung up choosing the software to make it with or even with styling that software.</p>
 
-<p>I ended up going with <a href="http://octopress.org/" title="Octopress">Octopress</a> and making changes primarily to the CSS. The default theme uses SASS and it&#8217;s organized well, so making it look a little less like the 1000 other Octopress blogs out there was pretty easy.</p>
+<span class="byline author vcard">Posted by <span class="fn">Matthew McClure</span></span>
 
-<p>The first post will be a writeup on <a href="http://http://song-votr.herokuapp.com/" title="Song-Votr Demo">Song-Votr</a>, since I saw a <a href="http://www.twilio.com/blog/2012/09/building-a-real-time-sms-voting-app-part-1-node-js-couchdb.html">tutorial</a> on how to build something pretty similar (down to the name &#8220;Votr&#8221;). Hopefully that will be up by the end of the weekend!</p>
+      
 
-<p>- Matt</p>
-]]></content>
-  </entry>
+
+
+
+
+
+
+
   
-</feed>
+
+
+<time datetime="2012-10-04T18:58:00-04:00" pubdate data-updated="true">Oct 4<span>th</span>, 2012</time>
+      
+
+<span class="categories">
+  
+    <a class='category' href='/blog/categories/padrino/'>Padrino</a>, <a class='category' href='/blog/categories/pubnub/'>PubNub</a>, <a class='category' href='/blog/categories/real-time/'>Real-Time</a>
+  
+</span>
+
+
+    </p>
+    
+      <div class="sharing">
+  
+  <a href="http://twitter.com/share" class="twitter-share-button" data-url="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/" data-via="matt_mcclure" data-counturl="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/" >Tweet</a>
+  
+  
+  
+</div>
+
+    
+    <p class="meta">
+      
+        <a class="basic-alignment left" href="/blog/2012/09/28/obligatory-first-post/" title="Previous Post: Obligatory First Post">&laquo; Obligatory First Post</a>
+      
+      
+    </p>
+  </footer>
+</article>
+
+</div>
+
+<aside class="sidebar">
+  
+    <section>
+  <h1>Recent Posts</h1>
+  <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2012/10/04/real-time-voting-with-pubnub/">Real-Time Voting with PubNub</a>
+      </li>
+    
+      <li class="post">
+        <a href="/blog/2012/09/28/obligatory-first-post/">Obligatory First Post</a>
+      </li>
+    
+  </ul>
+</section>
+
+<section>
+  <h1>GitHub Repos</h1>
+  <ul id="gh_repos">
+    <li class="loading">Status updating...</li>
+  </ul>
+  
+  <a href="https://github.com/sh1ps">@sh1ps</a> on GitHub
+  
+  <script type="text/javascript">
+    $.domReady(function(){
+        if (!window.jXHR){
+            var jxhr = document.createElement('script');
+            jxhr.type = 'text/javascript';
+            jxhr.src = '/javascripts/libs/jXHR.js';
+            var s = document.getElementsByTagName('script')[0];
+            s.parentNode.insertBefore(jxhr, s);
+        }
+
+        github.showRepos({
+            user: 'sh1ps',
+            count: 3,
+            skip_forks: true,
+            target: '#gh_repos'
+        });
+    });
+  </script>
+  <script src="/javascripts/github.js" type="text/javascript"> </script>
+</section>
+
+
+<section>
+  <h1>Latest Tweets</h1>
+  <ul id="tweets">
+    <li class="loading">Status updating...</li>
+  </ul>
+  <script type="text/javascript">
+    $.domReady(function(){
+      getTwitterFeed("matt_mcclure", 4, false);
+    });
+  </script>
+  <script src="/javascripts/twitter.js" type="text/javascript"> </script>
+  
+    <a href="http://twitter.com/matt_mcclure" class="twitter-follow-button" data-show-count="false">Follow @matt_mcclure</a>
+  
+</section>
+
+
+
+
+
+  
+</aside>
+
+
+    </div>
+  </div>
+  <footer role="contentinfo"><p>
+  Copyright &copy; 2012 - Matthew McClure -
+  <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>
+</p>
+
+</footer>
+  
+
+
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = 'http://platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+
+
+
+</body>
+</html>
