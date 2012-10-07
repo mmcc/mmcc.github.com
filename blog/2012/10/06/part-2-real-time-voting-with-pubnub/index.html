@@ -1,0 +1,459 @@
+
+<!DOCTYPE html>
+<!--[if IEMobile 7 ]><html class="no-js iem7"><![endif]-->
+<!--[if lt IE 9]><html class="no-js lte-ie8"><![endif]-->
+<!--[if (gt IE 8)|(gt IEMobile 7)|!(IEMobile)|!(IE)]><!--><html class="no-js" lang="en"><!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <title>Part 2: Real-Time Voting with PubNub - matt.mc</title>
+  <meta name="author" content="Matthew McClure">
+
+  
+  <meta name="description" content="In part 1, we created a really simple and utterly useless voting application. If you&#8217;re following along, at this point you should have an &hellip;">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">
+  <link href="/favicon.png" rel="icon">
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+  <link href="/stylesheets/font-awesome.css" media="screen, projection" rel="stylesheet" type="text/css">
+  <script src="/javascripts/modernizr-2.0.js"></script>
+  <script src="/javascripts/ender.js"></script>
+  <script src="/javascripts/octopress.js" type="text/javascript"></script>
+  <link href="/atom.xml" rel="alternate" title="matt.mc" type="application/atom+xml">
+  <!--Fonts from Google"s Web font directory at http://google.com/webfonts -->
+<link href="http://fonts.googleapis.com/css?family=PT+Serif:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+<link href="http://fonts.googleapis.com/css?family=PT+Sans:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+
+  
+  <script type="text/javascript">
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-35372425-1']);
+    _gaq.push(['_trackPageview']);
+
+    (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+  </script>
+
+
+</head>
+
+<body   >
+  <header role="banner"><hgroup>
+  <h1><a href="/"><span class="bracket">[</span>matt.mc<span class="bracket">]</span></a></h1>
+  
+    <h2>Matt.tech_ramblings</h2>
+  
+</hgroup>
+
+</header>
+  <nav role="navigation"><ul class="subscription" data-subscription="rss">
+  <li><a href="/atom.xml" rel="subscribe-rss" title="subscribe via RSS">RSS</a></li>
+  
+</ul>
+  
+<form action="http://google.com/search" method="get">
+  <fieldset role="search">
+    <input type="hidden" name="q" value="site:sh1ps.github.com" />
+    <input class="search" type="text" name="q" results="0" placeholder="Search"/>
+  </fieldset>
+</form>
+  
+<ul class="main-navigation">
+  <li><a href="/">Blog</a></li>
+  <li><a href="/blog/archives">Archives</a></li>
+</ul>
+
+</nav>
+  <div id="main">
+    <div id="content">
+      <div>
+<article class="hentry" role="article">
+  
+  <header>
+    
+      <h1 class="entry-title">Part 2: Real-Time Voting With PubNub</h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2012-10-06T09:50:00-04:00" pubdate data-updated="true">Oct 6<span>th</span>, 2012</time>
+        
+      </p>
+    
+  </header>
+
+
+<div class="entry-content"><p>In <a href="/blog/2012/10/04/real-time-voting-with-pubnub/">part 1</a>, we created a really simple and utterly useless voting application. If you&#8217;re following along, at this point you should have an application that displays a round of songs that you can vote on and never see them update unless you refresh the page. Now comes the fun part of tying everything together with PubNub.</p>
+
+<p>If you don&#8217;t already have a PubNub account, you&#8217;re going to need to go to their site and <a href="http://www.pubnub.com/free-trial">create one</a>. After you&#8217;ve signed up, make note of the Publish and Subscribe keys you see on your Account page, as you&#8217;ll be using those shortly.</p>
+
+<p>Now that we&#8217;ve got a PubNub account ready, let&#8217;s start prepping the application for it. First we&#8217;ll need to add the PubNub gem to our Gemfile. <em>Note: At this point we still need to use an old version of the gem due to a bug causing some problems with Thin, but I&#8217;ll update here once it&#8217;s resolved.</em></p>
+
+<pre><code>gem 'pubnub', '~&gt; 0.1'
+</code></pre>
+
+<p>The version isn&#8217;t necessarily required, but I like to include them just in case. If you were curious, the <a href="http://docs.rubygems.org/read/chapter/16#page74">version constraint</a> <code>~&gt;</code> is identical to <code>&gt;= 3.3.0</code> and <code>&lt; 3.4</code>. We can assume they won&#8217;t change anything that would break our code in versions <code>3.3.1</code> through <code>3.3.9</code>, so we can allow it to update to those versions when we update our bundle.</p>
+
+<p>Once you&#8217;ve added the gem and run <code>bundle install</code>, we can set up the necessary PubNub connections in our app. First let&#8217;s set up the publishing in the app. We need to instantiate a new PubNub object using at least the publish key from our PubNub account page. I like to do it above all the routes, so we&#8217;ll place it right above our root route. Make sure you switch out the publish and subscribe placeholders for your own!</p>
+
+<figure class='code'><figcaption><span>app.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="no">PUBNUB</span> <span class="o">=</span> <span class="no">Pubnub</span><span class="o">.</span><span class="n">new</span><span class="p">(</span>
+</span><span class='line'>  <span class="s1">&#39;PUBLISH-KEY&#39;</span><span class="p">,</span>
+</span><span class='line'>  <span class="s1">&#39;SUBSCRIBE-KEY&#39;</span><span class="p">,</span>
+</span><span class='line'>  <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="c1"># Secret Key (optional)</span>
+</span><span class='line'>  <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="c1"># Cipher Key (optional)</span>
+</span><span class='line'>  <span class="kp">false</span> <span class="c1"># Use SSL? (optional)</span>
+</span><span class='line'><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="n">get</span> <span class="s1">&#39;\&#39;</span> <span class="k">do</span>
+</span><span class='line'><span class="err">…</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now we just need to add the actual publish command to the vote route. We want to happen after a song and round have successfully been saved.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="err">…</span>
+</span><span class='line'><span class="k">if</span> <span class="vi">@song</span><span class="o">.</span><span class="n">save</span> <span class="ow">and</span> <span class="vi">@round</span><span class="o">.</span><span class="n">save</span>
+</span><span class='line'>  <span class="vi">@songs</span> <span class="o">=</span> <span class="no">Round</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">first</span><span class="o">.</span><span class="n">songs</span>
+</span><span class='line'>  <span class="n">logger</span><span class="o">.</span><span class="n">info</span> <span class="s2">&quot;Total votes: </span><span class="si">#{</span><span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">publish</span> <span class="o">=</span> <span class="no">PUBNUB</span><span class="o">.</span><span class="n">publish</span><span class="p">({</span>
+</span><span class='line'>    <span class="s1">&#39;channel&#39;</span> <span class="o">=&gt;</span> <span class="s1">&#39;votr-vote&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s1">&#39;message&#39;</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="s1">&#39;total_votes&#39;</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="p">,</span> <span class="s1">&#39;songs&#39;</span> <span class="o">=&gt;</span> <span class="vi">@songs</span> <span class="p">},</span>
+</span><span class='line'>    <span class="s1">&#39;callback&#39;</span> <span class="o">=&gt;</span> <span class="nb">lambda</span> <span class="k">do</span> <span class="o">|</span><span class="n">message</span><span class="o">|</span>
+</span><span class='line'>      <span class="n">logger</span><span class="o">.</span><span class="n">info</span> <span class="n">message</span>
+</span><span class='line'>    <span class="k">end</span>
+</span><span class='line'>  <span class="p">})</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">render</span> <span class="ss">:success</span> <span class="o">=&gt;</span> <span class="kp">true</span><span class="p">,</span> <span class="ss">:attributes</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="s1">&#39;round&#39;</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="p">,</span> <span class="s1">&#39;songs&#39;</span> <span class="o">=&gt;</span> <span class="vi">@songs</span> <span class="p">}</span>
+</span><span class='line'><span class="err">…</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>See how easy that was? Fire up the application using <code>padrino s</code> and vote on a few songs. If you want to be able to see the messages you&#8217;re sending, go to your <a href="https://pubnub-prod.appspot.com/console">PubNub console</a>, make sure you connect to the correct channel (&#8220;votr-vote&#8221; if you used what I did) and then send some more votes. You should see something like this in your console.</p>
+
+<p><img src="http://f.cl.ly/items/2o0w1M0z3m0P3j1M0G3j/Screen%20Shot%202012-10-06%20at%2011.05.29%20AM.png" alt="PubNub Console" /></p>
+
+<p>At this point, we&#8217;re able to accept votes and publish a message to our PubNub channel with the updated round stats. All that&#8217;s left is to write a little JavaScript to subscribe to that channel and update the round whenever a new message comes in.</p>
+
+<figure class='code'><figcaption><span>views/layouts/application.haml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="o">&lt;</span><span class="nx">div</span> <span class="nx">pub</span><span class="o">-</span><span class="nx">key</span><span class="o">=</span><span class="s2">&quot;PUBLISH-KEY&quot;</span> <span class="nx">sub</span><span class="o">-</span><span class="nx">key</span><span class="o">=</span><span class="s2">&quot;SUBSCRIBE-KEY&quot;</span> <span class="nx">ssl</span><span class="o">=</span><span class="s2">&quot;off&quot;</span> <span class="nx">origin</span><span class="o">=</span><span class="s2">&quot;pubsub.pubnub.com&quot;</span> <span class="nx">id</span><span class="o">=</span><span class="s2">&quot;pubnub&quot;</span><span class="o">&gt;&lt;</span><span class="err">/div&gt;</span>
+</span><span class='line'><span class="o">%</span><span class="nx">script</span><span class="p">{</span> <span class="o">:</span><span class="nx">src</span> <span class="o">=&gt;</span> <span class="s2">&quot;http://cdn.pubnub.com/pubnub-3.1.min.js&quot;</span> <span class="p">}</span>
+</span><span class='line'><span class="o">-</span> <span class="nx">unless</span> <span class="err">@</span><span class="nx">round</span><span class="p">.</span><span class="nx">blank</span><span class="o">?</span>
+</span><span class='line'> <span class="o">:</span><span class="nx">javascript</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">disableVoting</span><span class="p">()</span> <span class="p">{</span>
+</span><span class='line'>     <span class="err">…</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">update_votes</span><span class="p">(</span><span class="nx">message</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>     <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Message Recieved&quot;</span><span class="p">);</span>
+</span><span class='line'>     <span class="nx">total_votes</span> <span class="o">=</span> <span class="nx">message</span><span class="p">.</span><span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>     <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">message</span><span class="p">.</span><span class="nx">songs</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="nx">$</span><span class="p">(</span><span class="s2">&quot;#song_&quot;</span> <span class="o">+</span> <span class="k">this</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s2">&quot; .votes&quot;</span><span class="p">).</span><span class="nx">text</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">votes</span><span class="p">);</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>     <span class="nx">update_percentages</span><span class="p">(</span><span class="nx">message</span><span class="p">);</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">update_percentages</span><span class="p">(</span><span class="nx">message</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>     <span class="nx">total_votes</span> <span class="o">=</span> <span class="nx">message</span><span class="p">.</span><span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>     <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">message</span><span class="p">.</span><span class="nx">songs</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="nx">percentage</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">votes</span> <span class="o">/</span> <span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>       <span class="nx">$</span><span class="p">(</span><span class="s2">&quot;#song_&quot;</span> <span class="o">+</span> <span class="k">this</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s2">&quot; .progress .bar&quot;</span><span class="p">).</span><span class="nx">width</span><span class="p">(</span><span class="nx">percentage</span> <span class="o">*</span> <span class="mi">100</span> <span class="o">+</span> <span class="s2">&quot;%&quot;</span><span class="p">);</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="nx">$</span><span class="p">(</span><span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">).</span><span class="nx">countdown</span><span class="p">({</span><span class="nx">until</span><span class="o">:</span> <span class="err">#</span><span class="p">{</span><span class="err">@</span><span class="nx">timer</span><span class="p">.</span><span class="nx">to_i</span><span class="p">},</span> <span class="nx">format</span><span class="o">:</span> <span class="s1">&#39;HMS&#39;</span><span class="p">,</span> <span class="nx">compact</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span> <span class="nx">onExpiry</span><span class="o">:</span> <span class="nx">disableVoting</span><span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">update_votes</span><span class="p">(</span><span class="err">#</span><span class="p">{</span><span class="err">@</span><span class="nx">msg</span><span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;.vote&#39;</span><span class="p">).</span><span class="nx">click</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">event</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="err">…</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="c1">// LISTEN FOR MESSAGES</span>
+</span><span class='line'>     <span class="nx">PUBNUB</span><span class="p">.</span><span class="nx">subscribe</span><span class="p">({</span>
+</span><span class='line'>       <span class="nx">channel</span>    <span class="o">:</span> <span class="s2">&quot;votr-vote&quot;</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">restore</span>    <span class="o">:</span> <span class="kc">false</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">callback</span>   <span class="o">:</span> <span class="nx">update_votes</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">disconnect</span> <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// LOST CONNECTION.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Disconnected from PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">},</span>
+</span><span class='line'>       <span class="nx">reconnect</span>  <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// CONNECTION RESTORED.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Reconnected to PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">},</span>
+</span><span class='line'>       <span class="nx">connect</span>    <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// CONNECTION ESTABLISHED.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Connected to PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">}</span>
+</span><span class='line'>     <span class="p">})</span>
+</span><span class='line'>   <span class="p">});</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Let&#8217;s follow what&#8217;s happening step by step. Right when the page loads, update_votes(#{@msg}) is called. @msg is essentially the same message that gets sent via PubNub, so all we&#8217;re doing is sending the round as-is to the user right when the page loads. update_votes() then sets each song&#8217;s vote count and then calls update_percentages(), which is what actually sets the width of the progress bars. update_votes() then gets called every time a new message is received from PubNub.</p>
+
+<p>Since we haven&#8217;t put any restrictions on the number of times you can vote, open up a few browser windows side by side and start clicking away. You should see all of your open windows updating simultaneously.</p>
+
+<p>So there you have it! You&#8217;ll notice in the <a href="https://github.com/sh1ps/padrino-pubnub-votr">repository</a> there&#8217;s an admin directory. This is a cool feature of Padrino that allows you to essentially drop in an admin interface by simply running <code>padrino g admin</code>. The admin interface in the repository has been modified to look like the rest of the application, but otherwise it&#8217;s largely similar to the generated version. For more info on the Padrino Admin generator see the <a href="http://www.padrinorb.com/guides/padrino-admin">Padrino guides</a>.</p>
+
+<p><img src="http://f.cl.ly/items/3N2H1D3z2R420T1N2y0t/Screen%20Shot%202012-10-07%20at%205.27.52%20PM.png" alt="Votr Admin Interface" /></p>
+
+<p>There you have it! Vote away and enjoy. If you have any questions or suggestions, don&#8217;t hesitate to drop me a line on Twitter <a href="http://twitter.com/matt_mcclure">@matt_mcclure</a>.</p>
+</div>
+
+
+  <footer>
+    <p class="meta">
+      
+  
+
+<span class="byline author vcard">Posted by <span class="fn">Matthew McClure</span></span>
+
+      
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2012-10-06T09:50:00-04:00" pubdate data-updated="true">Oct 6<span>th</span>, 2012</time>
+      
+
+<span class="categories">
+  
+    <a class='category' href='/blog/categories/padrino/'>Padrino</a>, <a class='category' href='/blog/categories/pubnub/'>PubNub</a>, <a class='category' href='/blog/categories/real-time/'>Real-Time</a>
+  
+</span>
+
+
+    </p>
+    
+      <div class="sharing">
+  
+  <a href="http://twitter.com/share" class="twitter-share-button" data-url="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/" data-via="matt_mcclure" data-counturl="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/" >Tweet</a>
+  
+  
+  
+</div>
+
+    
+    <p class="meta">
+      
+        <a class="basic-alignment left" href="/blog/2012/10/04/real-time-voting-with-pubnub/" title="Previous Post: Part 1: Real-Time Voting with PubNub">&laquo; Part 1: Real-Time Voting with PubNub</a>
+      
+      
+    </p>
+  </footer>
+</article>
+
+</div>
+
+<aside class="sidebar">
+  
+    <section>
+  <h1>Recent Posts</h1>
+  <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">Part 2: Real-Time Voting with PubNub</a>
+      </li>
+    
+      <li class="post">
+        <a href="/blog/2012/10/04/real-time-voting-with-pubnub/">Part 1: Real-Time Voting with PubNub</a>
+      </li>
+    
+      <li class="post">
+        <a href="/blog/2012/09/28/obligatory-first-post/">Obligatory First Post</a>
+      </li>
+    
+  </ul>
+</section>
+
+<section>
+  <h1>GitHub Repos</h1>
+  <ul id="gh_repos">
+    <li class="loading">Status updating...</li>
+  </ul>
+  
+  <a href="https://github.com/sh1ps">@sh1ps</a> on GitHub
+  
+  <script type="text/javascript">
+    $.domReady(function(){
+        if (!window.jXHR){
+            var jxhr = document.createElement('script');
+            jxhr.type = 'text/javascript';
+            jxhr.src = '/javascripts/libs/jXHR.js';
+            var s = document.getElementsByTagName('script')[0];
+            s.parentNode.insertBefore(jxhr, s);
+        }
+
+        github.showRepos({
+            user: 'sh1ps',
+            count: 3,
+            skip_forks: true,
+            target: '#gh_repos'
+        });
+    });
+  </script>
+  <script src="/javascripts/github.js" type="text/javascript"> </script>
+</section>
+
+
+<section>
+  <h1>Latest Tweets</h1>
+  <ul id="tweets">
+    <li class="loading">Status updating...</li>
+  </ul>
+  <script type="text/javascript">
+    $.domReady(function(){
+      getTwitterFeed("matt_mcclure", 4, false);
+    });
+  </script>
+  <script src="/javascripts/twitter.js" type="text/javascript"> </script>
+  
+    <a href="http://twitter.com/matt_mcclure" class="twitter-follow-button" data-show-count="false">Follow @matt_mcclure</a>
+  
+</section>
+
+
+
+
+
+  
+</aside>
+
+
+    </div>
+  </div>
+  <footer role="contentinfo"><p>
+  Copyright &copy; 2012 - Matthew McClure -
+  <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>
+</p>
+
+</footer>
+  
+
+
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = 'http://platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+
+
+
+</body>
+</html>

@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Real-Time | matt.mc]]></title>
   <link href="http://sh1ps.github.com/blog/categories/real-time/atom.xml" rel="self"/>
   <link href="http://sh1ps.github.com/"/>
-  <updated>2012-10-05T14:36:24-04:00</updated>
+  <updated>2012-10-07T17:34:21-04:00</updated>
   <id>http://sh1ps.github.com/</id>
   <author>
     <name><![CDATA[Matthew McClure]]></name>
@@ -14,7 +14,146 @@
 
   
   <entry>
-    <title type="html"><![CDATA[Real-Time Voting with PubNub]]></title>
+    <title type="html"><![CDATA[Part 2: Real-Time Voting with PubNub]]></title>
+    <link href="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/"/>
+    <updated>2012-10-06T09:50:00-04:00</updated>
+    <id>http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub</id>
+    <content type="html"><![CDATA[<p>In <a href="/blog/2012/10/04/real-time-voting-with-pubnub/">part 1</a>, we created a really simple and utterly useless voting application. If you're following along, at this point you should have an application that displays a round of songs that you can vote on and never see them update unless you refresh the page. Now comes the fun part of tying everything together with PubNub.</p>
+
+<p>If you don't already have a PubNub account, you're going to need to go to their site and <a href="http://www.pubnub.com/free-trial">create one</a>. After you've signed up, make note of the Publish and Subscribe keys you see on your Account page, as you'll be using those shortly.</p>
+
+<p>Now that we've got a PubNub account ready, let's start prepping the application for it. First we'll need to add the PubNub gem to our Gemfile. <em>Note: At this point we still need to use an old version of the gem due to a bug causing some problems with Thin, but I'll update here once it's resolved.</em></p>
+
+<pre><code>gem 'pubnub', '~&gt; 0.1'
+</code></pre>
+
+<p>The version isn't necessarily required, but I like to include them just in case. If you were curious, the <a href="http://docs.rubygems.org/read/chapter/16#page74">version constraint</a> <code>~&gt;</code> is identical to <code>&gt;= 3.3.0</code> and <code>&lt; 3.4</code>. We can assume they won't change anything that would break our code in versions <code>3.3.1</code> through <code>3.3.9</code>, so we can allow it to update to those versions when we update our bundle.</p>
+
+<p>Once you've added the gem and run <code>bundle install</code>, we can set up the necessary PubNub connections in our app. First let's set up the publishing in the app. We need to instantiate a new PubNub object using at least the publish key from our PubNub account page. I like to do it above all the routes, so we'll place it right above our root route. Make sure you switch out the publish and subscribe placeholders for your own!</p>
+
+<p>``` ruby app.rb
+PUBNUB = Pubnub.new(
+  'PUBLISH-KEY',
+  'SUBSCRIBE-KEY',
+  '', # Secret Key (optional)
+  '', # Cipher Key (optional)
+  false # Use SSL? (optional)
+)</p>
+
+<p>get '\' do
+…
+```</p>
+
+<p>Now we just need to add the actual publish command to the vote route. We want to happen after a song and round have successfully been saved.</p>
+
+<p>``` ruby
+…
+if @song.save and @round.save
+  @songs = Round.current.first.songs
+  logger.info "Total votes: #{@round.total_votes}"</p>
+
+<p>  publish = PUBNUB.publish({</p>
+
+<pre><code>'channel' =&gt; 'votr-vote',
+'message' =&gt; { 'total_votes' =&gt; @round.total_votes, 'songs' =&gt; @songs },
+'callback' =&gt; lambda do |message|
+  logger.info message
+end
+</code></pre>
+
+<p>  })</p>
+
+<p>  render :success => true, :attributes => { 'round' => @round, 'songs' => @songs }
+…
+<code>``
+See how easy that was? Fire up the application using</code>padrino s` and vote on a few songs. If you want to be able to see the messages you're sending, go to your <a href="https://pubnub-prod.appspot.com/console">PubNub console</a>, make sure you connect to the correct channel ("votr-vote" if you used what I did) and then send some more votes. You should see something like this in your console.</p>
+
+<p><img src="http://f.cl.ly/items/2o0w1M0z3m0P3j1M0G3j/Screen%20Shot%202012-10-06%20at%2011.05.29%20AM.png" alt="PubNub Console" /></p>
+
+<p>At this point, we're able to accept votes and publish a message to our PubNub channel with the updated round stats. All that's left is to write a little JavaScript to subscribe to that channel and update the round whenever a new message comes in.</p>
+
+<p>``` javascript views/layouts/application.haml</p>
+
+<div pub-key="PUBLISH-KEY" sub-key="SUBSCRIBE-KEY" ssl="off" origin="pubsub.pubnub.com" id="pubnub"></div>
+
+
+<p>%script{ :src => "http://cdn.pubnub.com/pubnub-3.1.min.js" }
+- unless @round.blank?
+ :javascript</p>
+
+<p>   function disableVoting() {</p>
+
+<pre><code> … 
+</code></pre>
+
+<p>   }</p>
+
+<p>   function update_votes(message) {</p>
+
+<pre><code> console.log("Message Recieved");
+ total_votes = message.total_votes;
+ $.each(message.songs, function(index, value) {
+   $("#song_" + this.id + " .votes").text(this.votes);
+ });
+ update_percentages(message);
+</code></pre>
+
+<p>   }</p>
+
+<p>   function update_percentages(message) {</p>
+
+<pre><code> total_votes = message.total_votes;
+ $.each(message.songs, function(index, value) {
+   percentage = this.votes / total_votes;
+   $("#song_" + this.id + " .progress .bar").width(percentage * 100 + "%");
+ });
+</code></pre>
+
+<p>   }</p>
+
+<p>   $(function () {</p>
+
+<pre><code> $('#clock').countdown({until: #{@timer.to_i}, format: 'HMS', compact: true, onExpiry: disableVoting});
+
+ update_votes(#{@msg});
+
+ $('.vote').click(function(event) {
+   … 
+ });
+
+ // LISTEN FOR MESSAGES
+ PUBNUB.subscribe({
+   channel    : "votr-vote",
+   restore    : false,
+   callback   : update_votes,
+   disconnect : function() {        // LOST CONNECTION.
+     console.log("Disconnected from PubNub.");
+   },
+   reconnect  : function() {        // CONNECTION RESTORED.
+     console.log("Reconnected to PubNub.");
+   },
+   connect    : function() {        // CONNECTION ESTABLISHED.
+     console.log("Connected to PubNub.");
+   }
+ })
+</code></pre>
+
+<p>   });
+```
+Let's follow what's happening step by step. Right when the page loads, update_votes(#{@msg}) is called. @msg is essentially the same message that gets sent via PubNub, so all we're doing is sending the round as-is to the user right when the page loads. update_votes() then sets each song's vote count and then calls update_percentages(), which is what actually sets the width of the progress bars. update_votes() then gets called every time a new message is received from PubNub.</p>
+
+<p>Since we haven't put any restrictions on the number of times you can vote, open up a few browser windows side by side and start clicking away. You should see all of your open windows updating simultaneously.</p>
+
+<p>So there you have it! You'll notice in the <a href="https://github.com/sh1ps/padrino-pubnub-votr">repository</a> there's an admin directory. This is a cool feature of Padrino that allows you to essentially drop in an admin interface by simply running <code>padrino g admin</code>. The admin interface in the repository has been modified to look like the rest of the application, but otherwise it's largely similar to the generated version. For more info on the Padrino Admin generator see the <a href="http://www.padrinorb.com/guides/padrino-admin">Padrino guides</a>.</p>
+
+<p><img src="http://f.cl.ly/items/3N2H1D3z2R420T1N2y0t/Screen%20Shot%202012-10-07%20at%205.27.52%20PM.png" alt="Votr Admin Interface" /></p>
+
+<p>There you have it! Vote away and enjoy. If you have any questions or suggestions, don't hesitate to drop me a line on Twitter <a href="http://twitter.com/matt_mcclure">@matt_mcclure</a>.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Part 1: Real-Time Voting with PubNub]]></title>
     <link href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/"/>
     <updated>2012-10-04T18:58:00-04:00</updated>
     <id>http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub</id>
@@ -159,7 +298,7 @@ end
 
 <p>Our layout is going to be simple for now. I almost always start my projects with Nicolas Gallagher's <a href="http://necolas.github.com/normalize.css/">Normalize</a>, and Keith Wood's <a href="http://keith-wood.name/countdown.html">jquery.countdown</a> is what's going to make our clock actually count down.</p>
 
-<p>``` ruby views/layouts/application.haml
+<p>``` haml views/layouts/application.haml
 !!! 5
 %html
   %head</p>
@@ -276,9 +415,18 @@ end
 ```
 Now that the /vote route works, we need to add a little Javascript so the vote is sent via ajax. Change the javascript block in the layout to look something like this:</p>
 
-<p>``` ruby views/layouts/application.haml
+<p>``` javascript views/layouts/application.haml
 :javascript
-  $(function(){</p>
+  // Reload the window whenever the clock gets to zero so we can get the next round.
+  function disableVoting() {</p>
+
+<pre><code>alert("This round's over! New round starting...");
+window.location.reload();
+</code></pre>
+
+<p>  }</p>
+
+<p>  $(function(){</p>
 
 <pre><code>$('#clock').countdown({until: #{@timer.to_i}, format: 'HMS', compact: true, onExpiry: disableVoting});
 
@@ -303,9 +451,9 @@ $('.vote').click(function(event) {
 <p>  });
 ```</p>
 
-<h2>Making it Live</h2>
+<h2><a href="/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">Making it Live</a></h2>
 
-<p>Now that we have our rounds and we're able to post votes to them, we need to make it so everyone can see everyone's votes as their happening. Because this post is starting to get incredibly lengthy, let's take a breather and tackle the PubNub integration in the next post.</p>
+<p>Now that we have our rounds and we're able to post votes to them, we need to make it so everyone can see everyone's votes as their happening. Because this post is starting to get incredibly lengthy, let's take a breather and tackle the PubNub integration in the <a href="/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">next post</a>.</p>
 
 <h2>If you're interested...</h2>
 

@@ -4,7 +4,7 @@
   <title><![CDATA[matt.mc]]></title>
   <link href="http://sh1ps.github.com/atom.xml" rel="self"/>
   <link href="http://sh1ps.github.com/"/>
-  <updated>2012-10-05T14:36:24-04:00</updated>
+  <updated>2012-10-07T17:34:21-04:00</updated>
   <id>http://sh1ps.github.com/</id>
   <author>
     <name><![CDATA[Matthew McClure]]></name>
@@ -14,7 +14,208 @@
 
   
   <entry>
-    <title type="html"><![CDATA[Real-Time Voting with PubNub]]></title>
+    <title type="html"><![CDATA[Part 2: Real-Time Voting with PubNub]]></title>
+    <link href="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/"/>
+    <updated>2012-10-06T09:50:00-04:00</updated>
+    <id>http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub</id>
+    <content type="html"><![CDATA[<p>In <a href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/">part 1</a>, we created a really simple and utterly useless voting application. If you&#8217;re following along, at this point you should have an application that displays a round of songs that you can vote on and never see them update unless you refresh the page. Now comes the fun part of tying everything together with PubNub.</p>
+
+<p>If you don&#8217;t already have a PubNub account, you&#8217;re going to need to go to their site and <a href="http://www.pubnub.com/free-trial">create one</a>. After you&#8217;ve signed up, make note of the Publish and Subscribe keys you see on your Account page, as you&#8217;ll be using those shortly.</p>
+
+<p>Now that we&#8217;ve got a PubNub account ready, let&#8217;s start prepping the application for it. First we&#8217;ll need to add the PubNub gem to our Gemfile. <em>Note: At this point we still need to use an old version of the gem due to a bug causing some problems with Thin, but I&#8217;ll update here once it&#8217;s resolved.</em></p>
+
+<pre><code>gem 'pubnub', '~&gt; 0.1'
+</code></pre>
+
+<p>The version isn&#8217;t necessarily required, but I like to include them just in case. If you were curious, the <a href="http://docs.rubygems.org/read/chapter/16#page74">version constraint</a> <code>~&gt;</code> is identical to <code>&gt;= 3.3.0</code> and <code>&lt; 3.4</code>. We can assume they won&#8217;t change anything that would break our code in versions <code>3.3.1</code> through <code>3.3.9</code>, so we can allow it to update to those versions when we update our bundle.</p>
+
+<p>Once you&#8217;ve added the gem and run <code>bundle install</code>, we can set up the necessary PubNub connections in our app. First let&#8217;s set up the publishing in the app. We need to instantiate a new PubNub object using at least the publish key from our PubNub account page. I like to do it above all the routes, so we&#8217;ll place it right above our root route. Make sure you switch out the publish and subscribe placeholders for your own!</p>
+
+<figure class='code'><figcaption><span>app.rb</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="no">PUBNUB</span> <span class="o">=</span> <span class="no">Pubnub</span><span class="o">.</span><span class="n">new</span><span class="p">(</span>
+</span><span class='line'>  <span class="s1">&#39;PUBLISH-KEY&#39;</span><span class="p">,</span>
+</span><span class='line'>  <span class="s1">&#39;SUBSCRIBE-KEY&#39;</span><span class="p">,</span>
+</span><span class='line'>  <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="c1"># Secret Key (optional)</span>
+</span><span class='line'>  <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="c1"># Cipher Key (optional)</span>
+</span><span class='line'>  <span class="kp">false</span> <span class="c1"># Use SSL? (optional)</span>
+</span><span class='line'><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="n">get</span> <span class="s1">&#39;\&#39;</span> <span class="k">do</span>
+</span><span class='line'><span class="err">…</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now we just need to add the actual publish command to the vote route. We want to happen after a song and round have successfully been saved.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="err">…</span>
+</span><span class='line'><span class="k">if</span> <span class="vi">@song</span><span class="o">.</span><span class="n">save</span> <span class="ow">and</span> <span class="vi">@round</span><span class="o">.</span><span class="n">save</span>
+</span><span class='line'>  <span class="vi">@songs</span> <span class="o">=</span> <span class="no">Round</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">first</span><span class="o">.</span><span class="n">songs</span>
+</span><span class='line'>  <span class="n">logger</span><span class="o">.</span><span class="n">info</span> <span class="s2">&quot;Total votes: </span><span class="si">#{</span><span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">publish</span> <span class="o">=</span> <span class="no">PUBNUB</span><span class="o">.</span><span class="n">publish</span><span class="p">({</span>
+</span><span class='line'>    <span class="s1">&#39;channel&#39;</span> <span class="o">=&gt;</span> <span class="s1">&#39;votr-vote&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s1">&#39;message&#39;</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="s1">&#39;total_votes&#39;</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="o">.</span><span class="n">total_votes</span><span class="p">,</span> <span class="s1">&#39;songs&#39;</span> <span class="o">=&gt;</span> <span class="vi">@songs</span> <span class="p">},</span>
+</span><span class='line'>    <span class="s1">&#39;callback&#39;</span> <span class="o">=&gt;</span> <span class="nb">lambda</span> <span class="k">do</span> <span class="o">|</span><span class="n">message</span><span class="o">|</span>
+</span><span class='line'>      <span class="n">logger</span><span class="o">.</span><span class="n">info</span> <span class="n">message</span>
+</span><span class='line'>    <span class="k">end</span>
+</span><span class='line'>  <span class="p">})</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="n">render</span> <span class="ss">:success</span> <span class="o">=&gt;</span> <span class="kp">true</span><span class="p">,</span> <span class="ss">:attributes</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="s1">&#39;round&#39;</span> <span class="o">=&gt;</span> <span class="vi">@round</span><span class="p">,</span> <span class="s1">&#39;songs&#39;</span> <span class="o">=&gt;</span> <span class="vi">@songs</span> <span class="p">}</span>
+</span><span class='line'><span class="err">…</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>See how easy that was? Fire up the application using <code>padrino s</code> and vote on a few songs. If you want to be able to see the messages you&#8217;re sending, go to your <a href="https://pubnub-prod.appspot.com/console">PubNub console</a>, make sure you connect to the correct channel (&#8220;votr-vote&#8221; if you used what I did) and then send some more votes. You should see something like this in your console.</p>
+
+<p><img src="http://f.cl.ly/items/2o0w1M0z3m0P3j1M0G3j/Screen%20Shot%202012-10-06%20at%2011.05.29%20AM.png" alt="PubNub Console" /></p>
+
+<p>At this point, we&#8217;re able to accept votes and publish a message to our PubNub channel with the updated round stats. All that&#8217;s left is to write a little JavaScript to subscribe to that channel and update the round whenever a new message comes in.</p>
+
+<figure class='code'><figcaption><span>views/layouts/application.haml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="o">&lt;</span><span class="nx">div</span> <span class="nx">pub</span><span class="o">-</span><span class="nx">key</span><span class="o">=</span><span class="s2">&quot;PUBLISH-KEY&quot;</span> <span class="nx">sub</span><span class="o">-</span><span class="nx">key</span><span class="o">=</span><span class="s2">&quot;SUBSCRIBE-KEY&quot;</span> <span class="nx">ssl</span><span class="o">=</span><span class="s2">&quot;off&quot;</span> <span class="nx">origin</span><span class="o">=</span><span class="s2">&quot;pubsub.pubnub.com&quot;</span> <span class="nx">id</span><span class="o">=</span><span class="s2">&quot;pubnub&quot;</span><span class="o">&gt;&lt;</span><span class="err">/div&gt;</span>
+</span><span class='line'><span class="o">%</span><span class="nx">script</span><span class="p">{</span> <span class="o">:</span><span class="nx">src</span> <span class="o">=&gt;</span> <span class="s2">&quot;http://cdn.pubnub.com/pubnub-3.1.min.js&quot;</span> <span class="p">}</span>
+</span><span class='line'><span class="o">-</span> <span class="nx">unless</span> <span class="err">@</span><span class="nx">round</span><span class="p">.</span><span class="nx">blank</span><span class="o">?</span>
+</span><span class='line'> <span class="o">:</span><span class="nx">javascript</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">disableVoting</span><span class="p">()</span> <span class="p">{</span>
+</span><span class='line'>     <span class="err">…</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">update_votes</span><span class="p">(</span><span class="nx">message</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>     <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Message Recieved&quot;</span><span class="p">);</span>
+</span><span class='line'>     <span class="nx">total_votes</span> <span class="o">=</span> <span class="nx">message</span><span class="p">.</span><span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>     <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">message</span><span class="p">.</span><span class="nx">songs</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="nx">$</span><span class="p">(</span><span class="s2">&quot;#song_&quot;</span> <span class="o">+</span> <span class="k">this</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s2">&quot; .votes&quot;</span><span class="p">).</span><span class="nx">text</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">votes</span><span class="p">);</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>     <span class="nx">update_percentages</span><span class="p">(</span><span class="nx">message</span><span class="p">);</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="kd">function</span> <span class="nx">update_percentages</span><span class="p">(</span><span class="nx">message</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>     <span class="nx">total_votes</span> <span class="o">=</span> <span class="nx">message</span><span class="p">.</span><span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>     <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">message</span><span class="p">.</span><span class="nx">songs</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="nx">percentage</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">votes</span> <span class="o">/</span> <span class="nx">total_votes</span><span class="p">;</span>
+</span><span class='line'>       <span class="nx">$</span><span class="p">(</span><span class="s2">&quot;#song_&quot;</span> <span class="o">+</span> <span class="k">this</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s2">&quot; .progress .bar&quot;</span><span class="p">).</span><span class="nx">width</span><span class="p">(</span><span class="nx">percentage</span> <span class="o">*</span> <span class="mi">100</span> <span class="o">+</span> <span class="s2">&quot;%&quot;</span><span class="p">);</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>   <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>   <span class="nx">$</span><span class="p">(</span><span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">).</span><span class="nx">countdown</span><span class="p">({</span><span class="nx">until</span><span class="o">:</span> <span class="err">#</span><span class="p">{</span><span class="err">@</span><span class="nx">timer</span><span class="p">.</span><span class="nx">to_i</span><span class="p">},</span> <span class="nx">format</span><span class="o">:</span> <span class="s1">&#39;HMS&#39;</span><span class="p">,</span> <span class="nx">compact</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span> <span class="nx">onExpiry</span><span class="o">:</span> <span class="nx">disableVoting</span><span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">update_votes</span><span class="p">(</span><span class="err">#</span><span class="p">{</span><span class="err">@</span><span class="nx">msg</span><span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;.vote&#39;</span><span class="p">).</span><span class="nx">click</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">event</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>       <span class="err">…</span>
+</span><span class='line'>     <span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>     <span class="c1">// LISTEN FOR MESSAGES</span>
+</span><span class='line'>     <span class="nx">PUBNUB</span><span class="p">.</span><span class="nx">subscribe</span><span class="p">({</span>
+</span><span class='line'>       <span class="nx">channel</span>    <span class="o">:</span> <span class="s2">&quot;votr-vote&quot;</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">restore</span>    <span class="o">:</span> <span class="kc">false</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">callback</span>   <span class="o">:</span> <span class="nx">update_votes</span><span class="p">,</span>
+</span><span class='line'>       <span class="nx">disconnect</span> <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// LOST CONNECTION.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Disconnected from PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">},</span>
+</span><span class='line'>       <span class="nx">reconnect</span>  <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// CONNECTION RESTORED.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Reconnected to PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">},</span>
+</span><span class='line'>       <span class="nx">connect</span>    <span class="o">:</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>        <span class="c1">// CONNECTION ESTABLISHED.</span>
+</span><span class='line'>         <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Connected to PubNub.&quot;</span><span class="p">);</span>
+</span><span class='line'>       <span class="p">}</span>
+</span><span class='line'>     <span class="p">})</span>
+</span><span class='line'>   <span class="p">});</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Let&#8217;s follow what&#8217;s happening step by step. Right when the page loads, update_votes(#{@msg}) is called. @msg is essentially the same message that gets sent via PubNub, so all we&#8217;re doing is sending the round as-is to the user right when the page loads. update_votes() then sets each song&#8217;s vote count and then calls update_percentages(), which is what actually sets the width of the progress bars. update_votes() then gets called every time a new message is received from PubNub.</p>
+
+<p>Since we haven&#8217;t put any restrictions on the number of times you can vote, open up a few browser windows side by side and start clicking away. You should see all of your open windows updating simultaneously.</p>
+
+<p>So there you have it! You&#8217;ll notice in the <a href="https://github.com/sh1ps/padrino-pubnub-votr">repository</a> there&#8217;s an admin directory. This is a cool feature of Padrino that allows you to essentially drop in an admin interface by simply running <code>padrino g admin</code>. The admin interface in the repository has been modified to look like the rest of the application, but otherwise it&#8217;s largely similar to the generated version. For more info on the Padrino Admin generator see the <a href="http://www.padrinorb.com/guides/padrino-admin">Padrino guides</a>.</p>
+
+<p><img src="http://f.cl.ly/items/3N2H1D3z2R420T1N2y0t/Screen%20Shot%202012-10-07%20at%205.27.52%20PM.png" alt="Votr Admin Interface" /></p>
+
+<p>There you have it! Vote away and enjoy. If you have any questions or suggestions, don&#8217;t hesitate to drop me a line on Twitter <a href="http://twitter.com/matt_mcclure">@matt_mcclure</a>.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Part 1: Real-Time Voting with PubNub]]></title>
     <link href="http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub/"/>
     <updated>2012-10-04T18:58:00-04:00</updated>
     <id>http://sh1ps.github.com/blog/2012/10/04/real-time-voting-with-pubnub</id>
@@ -227,29 +428,29 @@ $ padrino g model song title:string artist:string votes:integer percentage:float
 <span class='line-number'>21</span>
 <span class='line-number'>22</span>
 <span class='line-number'>23</span>
-</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="o">!!!</span> <span class="mi">5</span>
-</span><span class='line'><span class="o">%</span><span class="n">html</span>
-</span><span class='line'>  <span class="o">%</span><span class="n">head</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">title</span> <span class="no">Votr</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;description&quot;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;author&quot;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;3 days&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;revisit-after&quot;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">link</span><span class="p">{</span> <span class="ss">:href</span> <span class="o">=&gt;</span> <span class="s2">&quot;http://creativecommons.org/licenses/by/3.0/&quot;</span><span class="p">,</span> <span class="ss">:rel</span> <span class="o">=&gt;</span> <span class="s2">&quot;license&quot;</span><span class="p">,</span> <span class="ss">:title</span> <span class="o">=&gt;</span> <span class="s2">&quot;Creative Commons Attribution 3.0 Unported License&quot;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="o">%</span><span class="n">script</span><span class="p">{</span> <span class="ss">:src</span> <span class="o">=&gt;</span> <span class="s2">&quot;https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js&quot;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="o">=</span> <span class="n">stylesheet_link_tag</span> <span class="s1">&#39;normalize&#39;</span><span class="p">,</span> <span class="s1">&#39;application&#39;</span>
-</span><span class='line'>    <span class="o">=</span> <span class="n">javascript_include_tag</span> <span class="s1">&#39;application&#39;</span><span class="p">,</span> <span class="s1">&#39;jquery.countdown&#39;</span>
-</span><span class='line'>  <span class="o">%</span><span class="n">body</span>
-</span><span class='line'>    <span class="o">=</span> <span class="k">yield</span>
+</pre></td><td class='code'><pre><code class='haml'><span class='line'><span class="nn">!!! 5</span>
+</span><span class='line'><span class="nt">%html</span>
+</span><span class='line'>  <span class="nt">%head</span>
+</span><span class='line'>    <span class="nt">%title</span> Votr
+</span><span class='line'>    <span class="nt">%meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;description&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="nt">%meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;author&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="nt">%meta</span><span class="p">{</span> <span class="ss">:content</span> <span class="o">=&gt;</span> <span class="s2">&quot;3 days&quot;</span><span class="p">,</span> <span class="ss">:name</span> <span class="o">=&gt;</span> <span class="s2">&quot;revisit-after&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="nt">%link</span><span class="p">{</span> <span class="ss">:href</span> <span class="o">=&gt;</span> <span class="s2">&quot;http://creativecommons.org/licenses/by/3.0/&quot;</span><span class="p">,</span> <span class="ss">:rel</span> <span class="o">=&gt;</span> <span class="s2">&quot;license&quot;</span><span class="p">,</span> <span class="ss">:title</span> <span class="o">=&gt;</span> <span class="s2">&quot;Creative Commons Attribution 3.0 Unported License&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="nt">%script</span><span class="p">{</span> <span class="ss">:src</span> <span class="o">=&gt;</span> <span class="s2">&quot;https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js&quot;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="p">=</span> <span class="n">stylesheet_link_tag</span> <span class="s1">&#39;normalize&#39;</span><span class="p">,</span> <span class="s1">&#39;application&#39;</span>
+</span><span class='line'>    <span class="p">=</span> <span class="n">javascript_include_tag</span> <span class="s1">&#39;application&#39;</span><span class="p">,</span> <span class="s1">&#39;jquery.countdown&#39;</span>
+</span><span class='line'>  <span class="nt">%body</span>
+</span><span class='line'>    <span class="p">=</span> <span class="k">yield</span>
 </span><span class='line'>
-</span><span class='line'>    <span class="o">%</span><span class="n">footer</span>
-</span><span class='line'>      <span class="o">%</span><span class="nb">p</span>
-</span><span class='line'>        <span class="c1">#{link_to(&quot;SongVotr&quot;, &quot;http://github.com/sh1ps/padrino-pubnub-votr&quot;)}. By #{link_to(&quot;@matt_mcclure&quot;, &quot;http://www.twitter.com/matt_mcclure&quot;)}.</span>
+</span><span class='line'>    <span class="nt">%footer</span>
+</span><span class='line'>      <span class="nt">%p</span>
+</span><span class='line'>        <span class="si">#{</span><span class="n">link_to</span><span class="p">(</span><span class="s2">&quot;SongVotr&quot;</span><span class="p">,</span> <span class="s2">&quot;http://github.com/sh1ps/padrino-pubnub-votr&quot;</span><span class="p">)</span><span class="si">}</span>. By <span class="si">#{</span><span class="n">link_to</span><span class="p">(</span><span class="s2">&quot;@matt_mcclure&quot;</span><span class="p">,</span> <span class="s2">&quot;http://www.twitter.com/matt_mcclure&quot;</span><span class="p">)</span><span class="si">}</span>.
 </span><span class='line'>
-</span><span class='line'>  <span class="o">-</span> <span class="k">unless</span> <span class="vi">@round</span><span class="o">.</span><span class="n">blank?</span>
-</span><span class='line'>    <span class="ss">:javascript</span>
-</span><span class='line'>      <span class="err">$</span><span class="p">(</span><span class="n">function</span><span class="p">(){</span>
-</span><span class='line'>            <span class="err">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">countdown</span><span class="p">({</span><span class="k">until</span><span class="p">:</span> <span class="c1">#{@timer.to_i}, format: &#39;HMS&#39;, compact: true, onExpiry: disableVoting});</span>
-</span><span class='line'>          <span class="p">});</span>
+</span><span class='line'>  <span class="p">-</span> <span class="k">unless</span> <span class="vi">@round</span><span class="o">.</span><span class="n">blank?</span>
+</span><span class='line'>    <span class="nd">:javascript</span>
+</span><span class='line'>      <span class="nd">$(function(){</span>
+</span><span class='line'>            $(&#39;#clock&#39;).countdown({until: <span class="si">#{</span><span class="vi">@timer</span><span class="o">.</span><span class="n">to_i</span><span class="si">}</span>, format: &#39;HMS&#39;, compact: true, onExpiry: disableVoting});
+</span><span class='line'>          });
 </span></code></pre></td></tr></table></div></figure>
 
 
@@ -390,23 +591,35 @@ $ padrino g model song title:string artist:string votes:integer percentage:float
 <span class='line-number'>19</span>
 <span class='line-number'>20</span>
 <span class='line-number'>21</span>
-</pre></td><td class='code'><pre><code class='ruby'><span class='line'><span class="ss">:javascript</span>
-</span><span class='line'>  <span class="err">$</span><span class="p">(</span><span class="n">function</span><span class="p">(){</span>
-</span><span class='line'>    <span class="err">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">countdown</span><span class="p">({</span><span class="k">until</span><span class="p">:</span> <span class="c1">#{@timer.to_i}, format: &#39;HMS&#39;, compact: true, onExpiry: disableVoting});</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="o">:</span><span class="nx">javascript</span>
+</span><span class='line'>  <span class="c1">// Reload the window whenever the clock gets to zero so we can get the next round.</span>
+</span><span class='line'>  <span class="kd">function</span> <span class="nx">disableVoting</span><span class="p">()</span> <span class="p">{</span>
+</span><span class='line'>    <span class="nx">alert</span><span class="p">(</span><span class="s2">&quot;This round&#39;s over! New round starting...&quot;</span><span class="p">);</span>
+</span><span class='line'>    <span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">reload</span><span class="p">();</span>
+</span><span class='line'>  <span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="nx">$</span><span class="p">(</span><span class="kd">function</span><span class="p">(){</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#clock&#39;</span><span class="p">).</span><span class="nx">countdown</span><span class="p">({</span><span class="nx">until</span><span class="o">:</span> <span class="err">#</span><span class="p">{</span><span class="err">@</span><span class="nx">timer</span><span class="p">.</span><span class="nx">to_i</span><span class="p">},</span> <span class="nx">format</span><span class="o">:</span> <span class="s1">&#39;HMS&#39;</span><span class="p">,</span> <span class="nx">compact</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span> <span class="nx">onExpiry</span><span class="o">:</span> <span class="nx">disableVoting</span><span class="p">});</span>
 </span><span class='line'>      
-</span><span class='line'>    <span class="err">$</span><span class="p">(</span><span class="s1">&#39;.vote&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">click</span><span class="p">(</span><span class="n">function</span><span class="p">(</span><span class="n">event</span><span class="p">)</span> <span class="p">{</span>
-</span><span class='line'>    <span class="n">event</span><span class="o">.</span><span class="n">preventDefault</span><span class="p">();</span>
-</span><span class='line'>    <span class="n">var</span> <span class="vg">$link</span> <span class="o">=</span> <span class="err">$</span><span class="p">(</span><span class="n">this</span><span class="p">);</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;.vote&#39;</span><span class="p">).</span><span class="nx">click</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">event</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>    <span class="nx">event</span><span class="p">.</span><span class="nx">preventDefault</span><span class="p">();</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">$link</span> <span class="o">=</span> <span class="nx">$</span><span class="p">(</span><span class="k">this</span><span class="p">);</span>
 </span><span class='line'>  
-</span><span class='line'>      <span class="vg">$.</span><span class="n">ajax</span><span class="p">({</span>
-</span><span class='line'>        <span class="n">type</span><span class="p">:</span> <span class="s1">&#39;POST&#39;</span><span class="p">,</span>
-</span><span class='line'>        <span class="n">url</span><span class="p">:</span> <span class="vg">$link</span><span class="o">.</span><span class="n">attr</span><span class="p">(</span><span class="s1">&#39;href&#39;</span><span class="p">),</span>
-</span><span class='line'>        <span class="n">success</span><span class="p">:</span> <span class="n">function</span> <span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="p">{</span>
-</span><span class='line'>          <span class="n">console</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Vote placed.&quot;</span><span class="p">);</span>
+</span><span class='line'>      <span class="nx">$</span><span class="p">.</span><span class="nx">ajax</span><span class="p">({</span>
+</span><span class='line'>        <span class="nx">type</span><span class="o">:</span> <span class="s1">&#39;POST&#39;</span><span class="p">,</span>
+</span><span class='line'>        <span class="nx">url</span><span class="o">:</span> <span class="nx">$link</span><span class="p">.</span><span class="nx">attr</span><span class="p">(</span><span class="s1">&#39;href&#39;</span><span class="p">),</span>
+</span><span class='line'>        <span class="nx">success</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">response</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>          <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Vote placed.&quot;</span><span class="p">);</span>
 </span><span class='line'>        <span class="p">},</span>
-</span><span class='line'>        <span class="n">error</span><span class="p">:</span> <span class="n">function</span> <span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="p">{</span>
-</span><span class='line'>          <span class="n">console</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Error: vote not placed.&quot;</span><span class="p">);</span>
-</span><span class='line'>          <span class="n">alert</span><span class="p">(</span><span class="s2">&quot;Vote could not be placed at this time.&quot;</span><span class="p">);</span>
+</span><span class='line'>        <span class="nx">error</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">response</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>          <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Error: vote not placed.&quot;</span><span class="p">);</span>
+</span><span class='line'>          <span class="nx">alert</span><span class="p">(</span><span class="s2">&quot;Vote could not be placed at this time.&quot;</span><span class="p">);</span>
 </span><span class='line'>        <span class="p">}</span>
 </span><span class='line'>      <span class="p">});</span>
 </span><span class='line'>    <span class="p">});</span>
@@ -414,9 +627,9 @@ $ padrino g model song title:string artist:string votes:integer percentage:float
 </span></code></pre></td></tr></table></div></figure>
 
 
-<h2>Making it Live</h2>
+<h2><a href="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">Making it Live</a></h2>
 
-<p>Now that we have our rounds and we&#8217;re able to post votes to them, we need to make it so everyone can see everyone&#8217;s votes as their happening. Because this post is starting to get incredibly lengthy, let&#8217;s take a breather and tackle the PubNub integration in the next post.</p>
+<p>Now that we have our rounds and we&#8217;re able to post votes to them, we need to make it so everyone can see everyone&#8217;s votes as their happening. Because this post is starting to get incredibly lengthy, let&#8217;s take a breather and tackle the PubNub integration in the <a href="http://sh1ps.github.com/blog/2012/10/06/part-2-real-time-voting-with-pubnub/">next post</a>.</p>
 
 <h2>If you&#8217;re interested&#8230;</h2>
 
