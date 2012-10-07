@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Padrino | matt.mc]]></title>
   <link href="http://sh1ps.github.com/blog/categories/padrino/atom.xml" rel="self"/>
   <link href="http://sh1ps.github.com/"/>
-  <updated>2012-10-07T18:17:00-04:00</updated>
+  <updated>2012-10-07T19:32:24-04:00</updated>
   <id>http://sh1ps.github.com/</id>
   <author>
     <name><![CDATA[Matthew McClure]]></name>
@@ -139,8 +139,8 @@ See how easy that was? Fire up the application using</code>padrino s` and vote o
 </code></pre>
 
 <p>   });
-```
-Let's follow what's happening step by step. Right when the page loads, update_votes(#{@msg}) is called. @msg is essentially the same message that gets sent via PubNub, so all we're doing is sending the round as-is to the user right when the page loads. update_votes() then sets each song's vote count and then calls update_percentages(), which is what actually sets the width of the progress bars. update_votes() then gets called every time a new message is received from PubNub.</p>
+<code>``
+Let's follow what's happening step by step. Right when the page loads,</code>update_votes(#{@msg})<code>is called.</code>@msg<code>is essentially the same message that gets sent via PubNub, so all we're doing is sending the round as-is to the user right when the page loads.</code>update_votes()<code>then sets each song's vote count and then calls</code>update_percentages()<code>, which is what actually sets the width of the progress bars.</code>update_votes()` then gets called every time a new message is received from PubNub.</p>
 
 <p>Since we haven't put any restrictions on the number of times you can vote, open up a few browser windows side by side and start clicking away. You should see all of your open windows updating simultaneously.</p>
 
